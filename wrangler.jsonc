@@ -15,7 +15,7 @@
       "binding": "DB",
       "database_name": "astrobloomx-agenda",
       // Reemplaza con el ID que te devuelve: npx wrangler d1 create astrobloomx-agenda
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "770ebabc-219a-4d93-84ad-e586466efd13",
       "migrations_dir": "migrations"
     }
   ],
@@ -24,7 +24,7 @@
     "crons": ["*/5 * * * *"]
   },
   "vars": {
-    "VAPID_SUBJECT": "mailto:astrobloomx@example.com"
+    "VAPID_SUBJECT": "mailto:marz.anibarmar@gmail.com"
   },
   "observability": { "enabled": true }
 }
