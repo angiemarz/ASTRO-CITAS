@@ -128,6 +128,27 @@ export function fromCalcom(body: any, tz: string): ExternalBooking | 'ping' | nu
   const { platform, contact } = inferPlatform(location, phone);
   const start = parseWhen(p.startTime, tz);
   if (!start) throw new HttpError(400, 'La reserva de Cal.com no tiene hora de inicio.');
+  // Datos extra que la página de reservas (Canva) envía en el enlace de Cal.com como metadata[...]
+  // o como preguntas de reserva: servicios elegidos, total, ubicación de la clienta y número de cita.
+  const md = { ...(p.metadata || {}) } as Record<string, unknown>;
+  const pick = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = str(md[k], 1000) || str(r[k], 1000);
+      if (v) return v;
+    }
+    return null;
+  };
+  const selected = splitServices(pick('servicios', 'services', 'servicio'));
+  const citaNum = /^(\d+)\s*(?:de|\/)\s*\d+/i.exec(pick('cita', 'cita_numero') ?? '');
+  // En paquetes de 2 sesiones el precio se cobra en la primera; las siguientes van en $0.
+  const laterSession = !!citaNum && Number(citaNum[1]) > 1;
+  const total = laterSession ? 0 : Number(String(pick('total', 'precio', 'price') ?? '').replace(/[^\d.]/g, ''));
+  const extra = [
+    pick('ubicacion', 'ubicación', 'ciudad', 'location_city') && `Vive en: ${pick('ubicacion', 'ubicación', 'ciudad', 'location_city')}`,
+    pick('cita', 'cita_numero') && `Cita ${pick('cita', 'cita_numero')}${laterSession ? ' (el precio se registró en la primera cita)' : ''}`,
+    pick('descuento', 'discount') && `Descuento: ${pick('descuento', 'discount')}`,
+    pick('resumen', 'summary'),
+  ].filter(Boolean);
   return {
     event,
     source: 'calcom',
@@ -138,16 +159,23 @@ export function fromCalcom(body: any, tz: string): ExternalBooking | 'ping' | nu
     email: str(r.email) || str(attendee.email),
     start,
     end: parseWhen(p.endTime, tz),
-    services: [str(p.eventTitle) || str(p.type) || str(p.title)].filter(Boolean) as string[],
+    services: selected.length ? selected : ([str(p.eventTitle) || str(p.type) || str(p.title)].filter(Boolean) as string[]),
     platform,
     contact,
-    price: p.price ? Number(p.price) / (Number(p.price) > 10000 ? 100 : 1) : null,
+    price: laterSession ? 0 : total > 0 ? total : p.price ? Number(p.price) / (Number(p.price) > 10000 ? 100 : 1) : null,
     currency: String(p.currency || '').toUpperCase() === 'USD' ? 'USD' : null,
-    notes: [str(r.notes), str(p.additionalNotes), str(p.description), str(p.cancellationReason) && `Motivo: ${str(p.cancellationReason)}`]
+    notes: [...extra, str(r.notes), str(p.additionalNotes), str(p.description), str(p.cancellationReason) && `Motivo: ${str(p.cancellationReason)}`]
       .filter(Boolean)
       .join('\n') || null,
     status: trigger === 'BOOKING_REQUESTED' ? 'scheduled' : 'confirmed',
   };
+}
+
+/** "Lectura general | Revolución solar" → ["Lectura general", "Revolución solar"]. También acepta comas o saltos de línea. */
+export function splitServices(v: string | null): string[] {
+  if (!v) return [];
+  const sep = v.includes('|') ? /\s*\|\s*/ : /\s*[,\n]\s*/;
+  return v.split(sep).map((s) => s.trim()).filter(Boolean).slice(0, 30);
 }
 
 // ---------- Formato genérico (Make, Canva, Zapier, Notion…) ----------
@@ -275,7 +303,8 @@ async function matchServices(env: Env, names: string[]) {
     const target = norm(n);
     const s =
       results.find((x) => norm(x.name) === target) ||
-      results.find((x) => target.includes(norm(x.name)) || norm(x.name).includes(target));
+      // Coincidencia parcial solo con nombres largos, para no confundir "Dinero" con "Dinero y propósito"
+      results.find((x) => norm(x.name).length >= 12 && target.length >= 12 && (target.includes(norm(x.name)) || norm(x.name).includes(target)));
     return s
       ? { service_id: s.id, name: s.name, category: s.category, price: s.price, duration_min: s.duration_min, currency: s.currency }
       : { service_id: null, name: n, category: null, price: 0, duration_min: null, currency: null };

@@ -73,3 +73,39 @@ describe('formato genérico (Make / Canva)', () => {
     expect(() => fromGeneric({ client_name: 'Ana' }, TZ)).toThrow();
   });
 });
+
+describe('Cal.com con datos de la página de Canva (metadata)', () => {
+  it('toma servicios, total, ubicación y número de cita', () => {
+    const b = fromCalcom(
+      {
+        triggerEvent: 'BOOKING_CREATED',
+        payload: {
+          uid: 'm1',
+          eventTitle: 'Cita AstroBloomx',
+          startTime: '2026-11-05T02:00:00Z',
+          attendees: [{ name: 'Sofía' }],
+          responses: { name: { value: 'Sofía' }, attendeePhoneNumber: { value: '6181234567' } },
+          metadata: { servicios: 'Lectura general | Revolución solar | Mini numerología', total: '579.50', ubicacion: 'Madrid, España', cita: '1 de 2' },
+        },
+      },
+      TZ,
+    );
+    expect(b).toMatchObject({
+      services: ['Lectura general', 'Revolución solar', 'Mini numerología'],
+      price: 579.5,
+      platform: 'whatsapp',
+    });
+    expect((b as { notes: string }).notes).toContain('Vive en: Madrid, España');
+    expect((b as { notes: string }).notes).toContain('Cita 1 de 2');
+  });
+});
+
+describe('paquetes de 2 citas', () => {
+  it('la segunda sesión queda en $0', () => {
+    const b = fromCalcom(
+      { triggerEvent: 'BOOKING_CREATED', payload: { uid: 'm2', startTime: '2026-11-06T02:00:00Z', attendees: [{ name: 'Sofía' }], metadata: { servicios: 'TAROT Y ASTROLOGÍA', total: '690', cita: '2 de 2' } } },
+      TZ,
+    );
+    expect((b as { price: number }).price).toBe(0);
+  });
+});

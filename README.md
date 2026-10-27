@@ -145,6 +145,16 @@ La agenda tiene una dirección de entrada (webhook) protegida con una clave. Las
 
 Solo `client_name` y `start` son obligatorios (también se aceptan `nombre`, `fecha` + `hora` como "4:00 PM", `servicio`, `telefono`, `precio`, `abono`). Si `start` no trae zona horaria se usa la configurada. Para cambios envía `"event": "rescheduled"` o `"cancelled"` con el mismo `external_id`. Si una cita se empalma con otra se guarda igual y se marca la advertencia en su historial y en la notificación.
 
+### Página de reservas de Canva + Cal.com
+
+La página de Canva envía a la clienta a un solo evento de Cal.com y le agrega al enlace los datos de su selección como `metadata`:
+
+```
+https://cal.com/TU-USUARIO/cita-astrobloomx?metadata[servicios]=Lectura%20general%20%7C%20Revoluci%C3%B3n%20solar&metadata[total]=579.50&metadata[descuento]=5%25&metadata[ubicacion]=Madrid&metadata[cita]=1%20de%202
+```
+
+La agenda lee `servicios` (separados por `|`), `total`, `descuento`, `ubicacion` y `cita` (en paquetes de 2 sesiones la segunda queda en $0). El catálogo completo de la página está en `scripts/catalogo-astrobloomx.sql`: pégalo en la consola de D1 para que los nombres coincidan exactamente (se puede ejecutar varias veces sin duplicar).
+
 ## 🎨 Usar tu logotipo original
 
 - **Dentro de la app:** *Configuración → Mi marca → Subir mi logotipo* (se guarda en tu base de datos).
