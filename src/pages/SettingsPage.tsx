@@ -6,7 +6,9 @@ import {
   Database,
   Download,
   ImagePlus,
+  Copy,
   KeyRound,
+  Link2,
   LogOut,
   Palette,
   Plus,
@@ -82,6 +84,7 @@ export function SettingsPage() {
         <div className="mx-auto max-w-2xl space-y-5">
           <BrandSection s={s} patch={patch} />
           <NotificationsSection s={s} patch={patch} />
+          <IntegrationsSection />
 
           <Section icon={<Clock />} title="Fecha y hora">
             <Field label="Zona horaria">
@@ -565,6 +568,171 @@ function BackupSection() {
         </Button>
         <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
       </div>
+    </Section>
+  );
+}
+
+const MAKE_EXAMPLE = `{
+  "event": "created",
+  "source": "canva",
+  "external_id": "ID-de-la-reserva",
+  "client_name": "María López",
+  "phone": "8112345678",
+  "email": "maria@correo.com",
+  "start": "2026-11-05T16:00:00-06:00",
+  "duration_min": 60,
+  "service": "Lectura de tarot general",
+  "platform": "whatsapp",
+  "price": 450,
+  "currency": "MXN",
+  "paid_amount": 200,
+  "notes": "Primera vez"
+}`;
+
+function IntegrationsSection() {
+  const { toast } = useFeedback();
+  const info = useQuery({
+    queryKey: ['integrations'],
+    queryFn: () =>
+      get<{
+        configured: boolean;
+        url: string | null;
+        base: string;
+        ics_url: string | null;
+        calcom_api: boolean;
+        calcom_last_sync: { at: string; checked: number; changed: number; error: string | null } | null;
+      }>('/integrations'),
+  });
+  const [syncing, setSyncing] = useState(false);
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      const r = await post<{ checked: number; changed: number; error?: string }>('/integrations/calcom/sync');
+      if (r.error) toast(r.error, 'error');
+      else toast(r.changed ? `Sincronizado: ${r.changed} cambio(s) recuperado(s)` : `Todo al día (${r.checked} reserva(s) revisadas)`);
+      info.refetch();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setSyncing(false);
+    }
+  };
+  const [show, setShow] = useState(false);
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`${what} copiado`);
+    } catch {
+      toast('No se pudo copiar; selecciónalo manualmente', 'error');
+    }
+  };
+  const d = info.data;
+  return (
+    <Section icon={<Link2 />} title="Integraciones">
+      <p className="text-sm text-plum-500">
+        Recibe automáticamente las citas que tus clientas agendan en Cal.com, tu app de Canva, Google Calendar o Notion (a través de Make). Las
+        cancelaciones y reprogramaciones también se actualizan solas.
+      </p>
+      {d && !d.configured && (
+        <div className="rounded-2xl bg-gold-300/30 px-4 py-3 text-sm text-plum-700">
+          Falta el secreto <code>WEBHOOK_SECRET</code>. Agrégalo en Cloudflare → tu Worker → Settings → Variables and Secrets (tipo <strong>Secret</strong>) con
+          una clave larga inventada, y vuelve a esta página.
+        </div>
+      )}
+      {d?.url && (
+        <>
+          <Field label="Tu dirección de webhook" hint="Es privada: incluye tu clave. No la compartas.">
+            <div className="flex gap-2">
+              <Input readOnly value={show ? d.url : d.url.replace(/token=.*/, 'token=••••••••')} onFocus={(e) => show && e.target.select()} />
+              <Button variant="secondary" onClick={() => setShow(!show)}>
+                {show ? 'Ocultar' : 'Ver'}
+              </Button>
+              <Button variant="soft" icon={<Copy className="size-4" />} onClick={() => copy(d.url!, 'Webhook')}>
+                Copiar
+              </Button>
+            </div>
+          </Field>
+          <details className="rounded-2xl bg-lavender-50 p-4 text-sm text-plum-700">
+            <summary className="cursor-pointer font-bold">Conectar Cal.com</summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>En Cal.com ve a Settings → Developer → Webhooks → New.</li>
+              <li>Pega tu dirección de webhook en “Subscriber URL”.</li>
+              <li>Marca los eventos Booking Created, Booking Rescheduled y Booking Cancelled.</li>
+              <li>Guarda: Cal.com enviará un “ping” de prueba.</li>
+            </ol>
+          </details>
+          <details className="rounded-2xl bg-lavender-50 p-4 text-sm text-plum-700">
+            <summary className="cursor-pointer font-bold">Conectar Make (Canva, Google Calendar, Notion…)</summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>Crea un escenario: disparador = tu fuente (por ejemplo “Watch events” de Google Calendar o un webhook de tu app de Canva).</li>
+              <li>Agrega el módulo HTTP → “Make a request”: método POST, URL = tu dirección de webhook, Body type = Raw, Content type = JSON.</li>
+              <li>En “Request content” arma el JSON con los datos de la cita (ejemplo abajo). Solo son obligatorios client_name y start.</li>
+              <li>Para cambios usa "event": "rescheduled" o "cancelled" con el mismo external_id.</li>
+            </ol>
+            <pre className="mt-3 overflow-x-auto rounded-xl bg-white p-3 text-xs text-plum-800">{MAKE_EXAMPLE}</pre>
+            <Button size="sm" variant="secondary" className="mt-2" icon={<Copy className="size-4" />} onClick={() => copy(MAKE_EXAMPLE, 'Ejemplo')}>
+              Copiar ejemplo
+            </Button>
+          </details>
+        </>
+      )}
+      {d?.ics_url && (
+        <div className="space-y-3 rounded-2xl border border-lavender-200 p-4">
+          <p className="font-bold text-plum-700">📅 Calendario de tu agenda (ICS)</p>
+          <p className="text-sm text-plum-500">
+            Para que Cal.com no ofrezca horarios que ya ocupaste con citas registradas a mano. Incluye tus citas activas (no las que ya vienen de Cal.com).
+          </p>
+          <div className="flex gap-2">
+            <Input readOnly value={d.ics_url.replace(/feed\/[^/]+/, 'feed/••••••')} />
+            <Button variant="soft" icon={<Copy className="size-4" />} onClick={() => copy(d.ics_url!, 'Enlace del calendario')}>
+              Copiar
+            </Button>
+          </div>
+          <details className="text-sm text-plum-700">
+            <summary className="cursor-pointer font-bold">Cómo conectarlo</summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>
+                <strong>Cal.com (recomendado):</strong> Apps → busca “ICS Feed” → Install → pega este enlace. Después en Settings → Calendars activa “Check for
+                conflicts” para ese calendario.
+              </li>
+              <li>
+                <strong>Google Calendar (para verlas ahí):</strong> en la computadora, “Otros calendarios” → + → “Desde URL” → pega el enlace. Google lo actualiza
+                cada varias horas, por eso para disponibilidad usa la opción de Cal.com.
+              </li>
+              <li>
+                <strong>iPhone:</strong> Ajustes → Calendario → Cuentas → Agregar cuenta → Otra → Agregar calendario suscrito.
+              </li>
+            </ol>
+          </details>
+        </div>
+      )}
+      {d?.configured && (
+        <div className="space-y-3 rounded-2xl border border-lavender-200 p-4">
+          <p className="font-bold text-plum-700">🔄 Sincronización con Cal.com</p>
+          {d.calcom_api ? (
+            <>
+              <p className="text-sm text-plum-500">
+                Activa: si cancelas o reprogramas aquí una cita de Cal.com, se actualiza allá y la clienta recibe el aviso. Cada 30 minutos se recuperan reservas que
+                no hayan llegado.
+              </p>
+              {d.calcom_last_sync && (
+                <p className="text-xs text-plum-400">
+                  Última revisión: {new Date(d.calcom_last_sync.at).toLocaleString('es-MX')} · {d.calcom_last_sync.checked} reserva(s)
+                  {d.calcom_last_sync.error ? ` · ⚠️ ${d.calcom_last_sync.error}` : ''}
+                </p>
+              )}
+              <Button size="sm" variant="secondary" loading={syncing} onClick={syncNow}>
+                Sincronizar ahora
+              </Button>
+            </>
+          ) : (
+            <p className="text-sm text-plum-500">
+              Opcional: en Cal.com ve a Settings → Developer → API Keys → crea una llave sin vencimiento y guárdala en Cloudflare como secreto{' '}
+              <code>CALCOM_API_KEY</code>. Así las cancelaciones y reprogramaciones que hagas aquí también se reflejan en Cal.com.
+            </p>
+          )}
+        </div>
+      )}
     </Section>
   );
 }

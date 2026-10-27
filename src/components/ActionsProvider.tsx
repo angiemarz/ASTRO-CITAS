@@ -54,8 +54,9 @@ export function ActionsProvider({ children }: { children: ReactNode }) {
   const setStatus = useCallback(
     async (a: Appointment, s: AppointmentStatus) => {
       try {
-        await statusM.mutateAsync({ id: a.id, status: s });
+        const updated = await statusM.mutateAsync({ id: a.id, status: s });
         toast('Estado actualizado');
+        if (updated.sync_warning) toast(updated.sync_warning, 'info');
       } catch (e) {
         toast((e as Error).message, 'error');
       }
@@ -170,8 +171,9 @@ function RescheduleSheet({ appt, onClose }: { appt: Appointment; onClose: () => 
     const start = fmt.toUtc(date, time);
     const end = new Date(start.getTime() + dur * 60000);
     try {
-      await m.mutateAsync({ id: appt.id, start_at: start.toISOString(), end_at: end.toISOString(), allow_overlap: allow, reason });
+      const updated = await m.mutateAsync({ id: appt.id, start_at: start.toISOString(), end_at: end.toISOString(), allow_overlap: allow, reason });
       toast(`Cita reprogramada para ${fmt.dateShort(start)} a las ${fmt.time(start)}`);
+      if (updated.sync_warning) toast(updated.sync_warning, 'info');
       onClose();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.data.conflicts) {

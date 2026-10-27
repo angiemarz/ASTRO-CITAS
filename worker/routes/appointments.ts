@@ -22,6 +22,7 @@ import {
   str,
   type Ctx,
 } from '../http';
+import { beforeDelete, externalSource, pushToCalcom } from '../calcom';
 import { reminderStatements } from '../reminders';
 import { loadSettings } from '../settings';
 
@@ -339,6 +340,7 @@ export async function getAppointment({ env, params }: Ctx) {
     payments: payments.results,
     history: history.results,
     client: client.results[0] ?? null,
+    external_source: await externalSource(env, id),
   });
 }
 
@@ -478,7 +480,10 @@ export async function updateAppointment({ req, env, params }: Ctx) {
   await env.DB.batch(stmts);
   const appt = (await fetchAppointment(env, id))!;
   await env.DB.batch(reminderStatements(env, appt, settings));
-  return json(appt);
+  let sync_warning: string | null = null;
+  if (input.status === 'cancelled' && before.status !== 'cancelled') sync_warning = await pushToCalcom(env, id, { type: 'cancel' });
+  else if (input.status !== 'cancelled' && before.start_at !== input.start_at) sync_warning = await pushToCalcom(env, id, { type: 'reschedule', start: input.start_at });
+  return json({ ...appt, sync_warning });
 }
 
 export async function setStatus({ req, env, params }: Ctx) {
@@ -517,7 +522,8 @@ export async function setStatus({ req, env, params }: Ctx) {
   await env.DB.batch([env.DB.prepare(sql).bind(...binds), historyStmt(env, id, 'Cambio de estado', details)]);
   const appt = (await fetchAppointment(env, id))!;
   await env.DB.batch(reminderStatements(env, appt, settings));
-  return json(appt);
+  const sync_warning = status === 'cancelled' && before.status !== 'cancelled' ? await pushToCalcom(env, id, { type: 'cancel', reason: note }) : null;
+  return json({ ...appt, sync_warning });
 }
 
 export async function reschedule({ req, env, params }: Ctx) {
@@ -548,13 +554,15 @@ export async function reschedule({ req, env, params }: Ctx) {
   ]);
   const appt = (await fetchAppointment(env, id))!;
   await env.DB.batch(reminderStatements(env, appt, settings));
-  return json(appt);
+  const sync_warning = await pushToCalcom(env, id, { type: 'reschedule', start: start_at, reason: str(body.reason, 300) });
+  return json({ ...appt, sync_warning });
 }
 
 export async function deleteAppointment({ env, params }: Ctx) {
   const id = Number(params.id);
+  const sync_warning = await beforeDelete(env, id);
   await env.DB.prepare('DELETE FROM appointments WHERE id = ?').bind(id).run();
-  return json({ ok: true });
+  return json({ ok: true, sync_warning });
 }
 
 // ---------- Pagos ----------

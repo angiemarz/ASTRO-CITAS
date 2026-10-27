@@ -5,6 +5,9 @@ import { HttpError, json, Router } from './http';
 import { runReminders } from './reminders';
 import * as appts from './routes/appointments';
 import * as catalog from './routes/catalog';
+import * as cal from './routes/calendar';
+import * as hooks from './routes/hooks';
+import { reconcileCalcom } from './calcom';
 import * as st from './routes/stats';
 import { getSettings, updateSettings } from './settings';
 
@@ -57,6 +60,11 @@ const router = new Router()
   .post('/api/push/subscribe', st.pushSubscribe)
   .post('/api/push/unsubscribe', st.pushUnsubscribe)
   .post('/api/push/test', st.pushTest)
+  // Integraciones: citas que llegan de Cal.com, Make, Canva…
+  .post('/api/hooks/booking', hooks.bookingHook, { public: true })
+  .get('/api/integrations', cal.integrationsInfo)
+  .post('/api/integrations/calcom/sync', cal.syncCalcomNow)
+  .get('/api/feed/:token/agenda.ics', cal.icsFeed, { public: true })
   // Respaldo
   .get('/api/export', st.exportData)
   .post('/api/import', st.importData);
@@ -105,12 +113,16 @@ export default {
     return res;
   },
 
-  async scheduled(_event, env, exec) {
+  async scheduled(event, env, exec) {
     exec.waitUntil(
       runReminders(env).then(
         (r) => r.sent && console.log(`Recordatorios enviados: ${r.sent}`),
         (e) => console.error('Error en recordatorios', e),
       ),
     );
+    // Cada 30 minutos: recupera reservas de Cal.com que no hayan llegado por webhook.
+    if (new Date(event.scheduledTime).getUTCMinutes() % 30 < 5) {
+      exec.waitUntil(reconcileCalcom(env, exec).catch((e) => console.error('Error al sincronizar Cal.com', e)));
+    }
   },
 } satisfies ExportedHandler<Env>;

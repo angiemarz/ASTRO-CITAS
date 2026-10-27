@@ -29,6 +29,8 @@ import { useAppointment, useDeleteAppointment, useDeletePayment } from '../lib/h
 import { isOpen, isOverdue } from '../lib/pending';
 import { useFmt } from '../lib/settings';
 
+const SOURCE_NAMES: Record<string, string> = { calcom: 'Cal.com', canva: 'Canva', make: 'Make', notion: 'Notion', google: 'Google Calendar', zapier: 'Zapier' };
+
 export function AppointmentDetailPage() {
   const id = Number(useParams().id);
   const { data: a, isLoading, error } = useAppointment(id);
@@ -61,8 +63,9 @@ export function AppointmentDetailPage() {
       danger: true,
     });
     if (!ok) return;
-    await delAppt.mutateAsync(a.id);
+    const r = await delAppt.mutateAsync(a.id);
     toast('Cita eliminada');
+    if (r?.sync_warning) toast(r.sync_warning, 'info');
     navigate('/citas', { replace: true });
   };
 
@@ -91,6 +94,11 @@ export function AppointmentDetailPage() {
               <StatusBadge status={a.status} className="text-sm" />
               <PaymentBadge status={a.payment_status} className="text-sm" />
               {overdue && <span className="rounded-full bg-rose-500 px-2.5 py-0.5 text-sm font-bold text-white">Atrasada sin marcar</span>}
+              {a.external_source && (
+                <span className="rounded-full bg-gold-300/40 px-2.5 py-0.5 text-sm font-bold text-gold-600">
+                  Agendada en {SOURCE_NAMES[a.external_source] ?? a.external_source}
+                </span>
+              )}
             </div>
             <div className="mt-4 flex items-end justify-between gap-4">
               <div>
