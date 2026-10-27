@@ -117,6 +117,34 @@ Los secretos `SETUP_CODE` y `VAPID_*` se configuran una sola vez con `wrangler s
 
 ---
 
+## 🔗 Recibir citas de Cal.com, Canva, Google Calendar, Notion (Make)
+
+La agenda tiene una dirección de entrada (webhook) protegida con una clave. Las citas que tus clientas agenden en otros sistemas llegan solas, con notificación al iPhone, cliente creada o reconocida (por teléfono, Instagram o nombre), servicio relacionado con tu catálogo y recordatorios programados. Las reprogramaciones y cancelaciones también se sincronizan.
+
+1. En Cloudflare → tu Worker → *Settings → Variables and Secrets* agrega `WEBHOOK_SECRET` (tipo **Secret**) con una clave larga inventada.
+2. En la app ve a *Configuración → Integraciones* y copia **tu dirección de webhook**.
+3. **Cal.com:** *Settings → Developer → Webhooks → New*, pega la dirección y marca *Booking Created / Rescheduled / Cancelled*. (Si llenas el campo *Secret* de Cal.com con la misma clave, también se verifica la firma.)
+4. **Make (Canva, Google Calendar, Notion…):** módulo *HTTP → Make a request*, método `POST`, cuerpo JSON:
+
+```json
+{
+  "event": "created",
+  "source": "canva",
+  "external_id": "ID-de-la-reserva",
+  "client_name": "María López",
+  "phone": "8112345678",
+  "start": "2026-11-05T16:00:00-06:00",
+  "duration_min": 60,
+  "service": "Lectura de tarot general",
+  "platform": "whatsapp",
+  "price": 450,
+  "paid_amount": 200,
+  "notes": "Primera vez"
+}
+```
+
+Solo `client_name` y `start` son obligatorios (también se aceptan `nombre`, `fecha` + `hora` como "4:00 PM", `servicio`, `telefono`, `precio`, `abono`). Si `start` no trae zona horaria se usa la configurada. Para cambios envía `"event": "rescheduled"` o `"cancelled"` con el mismo `external_id`. Si una cita se empalma con otra se guarda igual y se marca la advertencia en su historial y en la notificación.
+
 ## 🎨 Usar tu logotipo original
 
 - **Dentro de la app:** *Configuración → Mi marca → Subir mi logotipo* (se guarda en tu base de datos).

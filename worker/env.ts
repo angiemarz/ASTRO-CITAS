@@ -7,4 +7,6 @@ export interface Env {
   /** Llave privada VAPID (componente "d" en base64url). */
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
+  /** Clave para recibir citas desde Cal.com, Make, Canva, etc. */
+  WEBHOOK_SECRET?: string;
 }

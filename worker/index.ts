@@ -5,6 +5,7 @@ import { HttpError, json, Router } from './http';
 import { runReminders } from './reminders';
 import * as appts from './routes/appointments';
 import * as catalog from './routes/catalog';
+import * as hooks from './routes/hooks';
 import * as st from './routes/stats';
 import { getSettings, updateSettings } from './settings';
 
@@ -57,6 +58,9 @@ const router = new Router()
   .post('/api/push/subscribe', st.pushSubscribe)
   .post('/api/push/unsubscribe', st.pushUnsubscribe)
   .post('/api/push/test', st.pushTest)
+  // Integraciones: citas que llegan de Cal.com, Make, Canva…
+  .post('/api/hooks/booking', hooks.bookingHook, { public: true })
+  .get('/api/integrations', hooks.integrationsInfo)
   // Respaldo
   .get('/api/export', st.exportData)
   .post('/api/import', st.importData);

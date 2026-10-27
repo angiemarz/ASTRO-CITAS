@@ -6,7 +6,9 @@ import {
   Database,
   Download,
   ImagePlus,
+  Copy,
   KeyRound,
+  Link2,
   LogOut,
   Palette,
   Plus,
@@ -82,6 +84,7 @@ export function SettingsPage() {
         <div className="mx-auto max-w-2xl space-y-5">
           <BrandSection s={s} patch={patch} />
           <NotificationsSection s={s} patch={patch} />
+          <IntegrationsSection />
 
           <Section icon={<Clock />} title="Fecha y hora">
             <Field label="Zona horaria">
@@ -565,6 +568,92 @@ function BackupSection() {
         </Button>
         <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
       </div>
+    </Section>
+  );
+}
+
+const MAKE_EXAMPLE = `{
+  "event": "created",
+  "source": "canva",
+  "external_id": "ID-de-la-reserva",
+  "client_name": "María López",
+  "phone": "8112345678",
+  "email": "maria@correo.com",
+  "start": "2026-11-05T16:00:00-06:00",
+  "duration_min": 60,
+  "service": "Lectura de tarot general",
+  "platform": "whatsapp",
+  "price": 450,
+  "currency": "MXN",
+  "paid_amount": 200,
+  "notes": "Primera vez"
+}`;
+
+function IntegrationsSection() {
+  const { toast } = useFeedback();
+  const info = useQuery({
+    queryKey: ['integrations'],
+    queryFn: () => get<{ configured: boolean; url: string | null; base: string }>('/integrations'),
+  });
+  const [show, setShow] = useState(false);
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`${what} copiado`);
+    } catch {
+      toast('No se pudo copiar; selecciónalo manualmente', 'error');
+    }
+  };
+  const d = info.data;
+  return (
+    <Section icon={<Link2 />} title="Integraciones">
+      <p className="text-sm text-plum-500">
+        Recibe automáticamente las citas que tus clientas agendan en Cal.com, tu app de Canva, Google Calendar o Notion (a través de Make). Las
+        cancelaciones y reprogramaciones también se actualizan solas.
+      </p>
+      {d && !d.configured && (
+        <div className="rounded-2xl bg-gold-300/30 px-4 py-3 text-sm text-plum-700">
+          Falta el secreto <code>WEBHOOK_SECRET</code>. Agrégalo en Cloudflare → tu Worker → Settings → Variables and Secrets (tipo <strong>Secret</strong>) con
+          una clave larga inventada, y vuelve a esta página.
+        </div>
+      )}
+      {d?.url && (
+        <>
+          <Field label="Tu dirección de webhook" hint="Es privada: incluye tu clave. No la compartas.">
+            <div className="flex gap-2">
+              <Input readOnly value={show ? d.url : d.url.replace(/token=.*/, 'token=••••••••')} onFocus={(e) => show && e.target.select()} />
+              <Button variant="secondary" onClick={() => setShow(!show)}>
+                {show ? 'Ocultar' : 'Ver'}
+              </Button>
+              <Button variant="soft" icon={<Copy className="size-4" />} onClick={() => copy(d.url!, 'Webhook')}>
+                Copiar
+              </Button>
+            </div>
+          </Field>
+          <details className="rounded-2xl bg-lavender-50 p-4 text-sm text-plum-700">
+            <summary className="cursor-pointer font-bold">Conectar Cal.com</summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>En Cal.com ve a Settings → Developer → Webhooks → New.</li>
+              <li>Pega tu dirección de webhook en “Subscriber URL”.</li>
+              <li>Marca los eventos Booking Created, Booking Rescheduled y Booking Cancelled.</li>
+              <li>Guarda: Cal.com enviará un “ping” de prueba.</li>
+            </ol>
+          </details>
+          <details className="rounded-2xl bg-lavender-50 p-4 text-sm text-plum-700">
+            <summary className="cursor-pointer font-bold">Conectar Make (Canva, Google Calendar, Notion…)</summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>Crea un escenario: disparador = tu fuente (por ejemplo “Watch events” de Google Calendar o un webhook de tu app de Canva).</li>
+              <li>Agrega el módulo HTTP → “Make a request”: método POST, URL = tu dirección de webhook, Body type = Raw, Content type = JSON.</li>
+              <li>En “Request content” arma el JSON con los datos de la cita (ejemplo abajo). Solo son obligatorios client_name y start.</li>
+              <li>Para cambios usa "event": "rescheduled" o "cancelled" con el mismo external_id.</li>
+            </ol>
+            <pre className="mt-3 overflow-x-auto rounded-xl bg-white p-3 text-xs text-plum-800">{MAKE_EXAMPLE}</pre>
+            <Button size="sm" variant="secondary" className="mt-2" icon={<Copy className="size-4" />} onClick={() => copy(MAKE_EXAMPLE, 'Ejemplo')}>
+              Copiar ejemplo
+            </Button>
+          </details>
+        </>
+      )}
     </Section>
   );
 }
