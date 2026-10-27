@@ -12,6 +12,8 @@ Aplicación web progresiva (PWA) **personal y privada** para administrar las cit
 
 ## ✨ Funciones
 
+
+
 | Sección | Qué hace |
 | --- | --- |
 | **Inicio** | Citas de hoy, próxima cita (con tiempo restante y acciones rápidas), pendientes, atrasadas sin marcar, completadas y canceladas del mes, pagos pendientes, dinero cobrado hoy y por cobrar. Agenda del día separada en *en curso*, *próximas*, *pendientes de atender*, *completadas*. |
