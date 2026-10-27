@@ -155,6 +155,16 @@ https://cal.com/TU-USUARIO/cita-astrobloomx?metadata[servicios]=Lectura%20genera
 
 La agenda lee `servicios` (separados por `|`), `total`, `descuento`, `ubicacion` y `cita` (en paquetes de 2 sesiones la segunda queda en $0). El catálogo completo de la página está en `scripts/catalogo-astrobloomx.sql`: pégalo en la consola de D1 para que los nombres coincidan exactamente (se puede ejecutar varias veces sin duplicar).
 
+### Sin puntos ciegos
+
+| Riesgo | Solución |
+|---|---|
+| Cal.com no ve las citas que registras a mano y podría ofrecer ese horario | **Calendario ICS privado** (*Configuración → Integraciones*). En Cal.com: *Apps → ICS Feed* → pega el enlace y actívalo en *Check for conflicts*. También puedes suscribirte desde Google Calendar o el iPhone. |
+| Cancelas o reprogramas en la agenda una cita de Cal.com y la clienta no se entera | Con el secreto opcional `CALCOM_API_KEY` (Cal.com → *Settings → Developer → API Keys*), la agenda cancela/reprograma también en Cal.com y Cal.com avisa a la clienta. Sin la llave, la agenda te recuerda hacerlo allá. |
+| Un webhook se pierde | Con `CALCOM_API_KEY`, cada 30 minutos se revisan las reservas de Cal.com y se recupera lo que falte (también hay botón *Sincronizar ahora*). La revisión nunca deshace cambios que hiciste en la agenda. |
+| Alguien edita el enlace y baja el total | Si el total es menor al de tu catálogo (considerando el 5% por 3 o más servicios), se registra el del catálogo y queda la advertencia en el historial. |
+| Borras una cita que vino de Cal.com y la sincronización la recrea | Las citas borradas se recuerdan y no se vuelven a crear. |
+
 ## 🎨 Usar tu logotipo original
 
 - **Dentro de la app:** *Configuración → Mi marca → Subir mi logotipo* (se guarda en tu base de datos).

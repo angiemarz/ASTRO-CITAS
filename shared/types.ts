@@ -131,6 +131,10 @@ export interface Appointment {
   payments?: Payment[];
   history?: HistoryEntry[];
   client?: Client | null;
+  /** Origen externo ("calcom", "canva"…) si la cita llegó por una integración. */
+  external_source?: string | null;
+  /** Aviso cuando un cambio no se pudo reflejar en Cal.com. */
+  sync_warning?: string | null;
 }
 
 export interface AppointmentInput {

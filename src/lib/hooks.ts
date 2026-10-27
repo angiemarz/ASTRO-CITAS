@@ -115,7 +115,10 @@ export function useReschedule() {
 
 export function useDeleteAppointment() {
   const invalidate = useInvalidateAppointments();
-  return useMutation({ mutationFn: (id: number) => del(`/appointments/${id}`), onSuccess: () => invalidate() });
+  return useMutation({
+    mutationFn: (id: number) => del<{ ok: boolean; sync_warning?: string | null }>(`/appointments/${id}`),
+    onSuccess: () => invalidate(),
+  });
 }
 
 export function useAddPayment() {

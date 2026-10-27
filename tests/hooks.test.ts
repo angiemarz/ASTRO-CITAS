@@ -109,3 +109,27 @@ describe('paquetes de 2 citas', () => {
     expect((b as { price: number }).price).toBe(0);
   });
 });
+
+import { fromCalcomApi } from '../worker/calcom';
+
+describe('reservas de la API v2 de Cal.com (sincronización)', () => {
+  it('convierte una reserva aceptada', () => {
+    const b = fromCalcomApi(
+      {
+        uid: 'api-1',
+        start: '2026-11-12T02:00:00.000Z',
+        end: '2026-11-12T03:00:00.000Z',
+        status: 'accepted',
+        attendees: [{ name: 'Elena', email: 'e@x.com' }],
+        bookingFieldsResponses: { name: 'Elena', attendeePhoneNumber: '+52 618 000 1111' },
+        metadata: { servicios: 'Lectura general | Revolución solar', total: '475', ubicacion: 'Lima' },
+      },
+      TZ,
+    );
+    expect(b).toMatchObject({ event: 'created', external_id: 'api-1', client_name: 'Elena', price: 475, platform: 'whatsapp', services: ['Lectura general', 'Revolución solar'] });
+  });
+  it('cancelada → cancelled, y la reserva vieja de una reprogramación se ignora', () => {
+    expect(fromCalcomApi({ uid: 'x', start: '2026-11-12T02:00:00Z', status: 'cancelled' }, TZ)?.event).toBe('cancelled');
+    expect(fromCalcomApi({ uid: 'old', start: '2026-11-12T02:00:00Z', status: 'cancelled', rescheduled: true }, TZ)).toBeNull();
+  });
+});

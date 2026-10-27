@@ -3,3 +3,5 @@ SETUP_CODE=elige-un-codigo-secreto
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 WEBHOOK_SECRET=una-clave-larga-y-secreta
+# Opcional: sincronización en ambos sentidos con Cal.com
+CALCOM_API_KEY=

@@ -9,4 +9,8 @@ export interface Env {
   VAPID_SUBJECT?: string;
   /** Clave para recibir citas desde Cal.com, Make, Canva, etc. */
   WEBHOOK_SECRET?: string;
+  /** API key de Cal.com (opcional): sincroniza cancelaciones/reprogramaciones y recupera reservas perdidas. */
+  CALCOM_API_KEY?: string;
+  /** Solo para pruebas: URL alternativa de la API de Cal.com. */
+  CALCOM_API_BASE?: string;
 }

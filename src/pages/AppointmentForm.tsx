@@ -351,6 +351,7 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
       const saved = await save.mutateAsync({ id: existing?.id, input: buildInput(allowOverlap) });
       qc.invalidateQueries({ queryKey: ['clients'] });
       toast(existing ? '💜 Cita actualizada' : `✨ Cita guardada: ${saved.client_name}, ${fmt.dateShort(saved.start_at)} ${fmt.time(saved.start_at)}`);
+      if (saved.sync_warning) toast(saved.sync_warning, 'info');
       if (createAnother) {
         setF({ ...initial(), date: f.date, client: { ...emptyClient } });
         setErrors({});

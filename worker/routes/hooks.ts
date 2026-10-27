@@ -34,6 +34,8 @@ export interface ExternalBooking {
   paid_amount?: number | null;
   notes?: string | null;
   status?: AppointmentStatus | null;
+  /** Segunda (o posterior) sesión de un paquete: el precio ya se registró en la primera. */
+  followup?: boolean;
 }
 
 const enc = new TextEncoder();
@@ -168,6 +170,7 @@ export function fromCalcom(body: any, tz: string): ExternalBooking | 'ping' | nu
       .filter(Boolean)
       .join('\n') || null,
     status: trigger === 'BOOKING_REQUESTED' ? 'scheduled' : 'confirmed',
+    followup: laterSession,
   };
 }
 
@@ -233,15 +236,35 @@ export function fromGeneric(b: any, tz: string): ExternalBooking {
 const SOURCE_LABEL: Record<string, string> = { calcom: 'Cal.com', make: 'Make', canva: 'Canva', notion: 'Notion', zapier: 'Zapier', google: 'Google Calendar' };
 const sourceLabel = (s: string) => SOURCE_LABEL[s] ?? s;
 
-async function ensureTable(env: Env) {
-  // Se crea aquí (además de en la migración 0002) para no requerir pasos manuales en la base de datos.
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS external_bookings (
-       source TEXT NOT NULL, external_id TEXT NOT NULL,
-       appointment_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
-       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-       PRIMARY KEY (source, external_id))`,
-  ).run();
+let tablesReady = false;
+
+export async function ensureTable(env: Env) {
+  // Se crean aquí (además de en la migración 0002) para no requerir pasos manuales en la base de datos.
+  if (tablesReady) return;
+  await env.DB.batch([
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS external_bookings (
+         source TEXT NOT NULL, external_id TEXT NOT NULL,
+         appointment_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+         created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+         PRIMARY KEY (source, external_id))`,
+    ),
+    // Reservas externas cuya cita borraste a mano: no se vuelven a crear al sincronizar.
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS external_ignored (
+         source TEXT NOT NULL, external_id TEXT NOT NULL, created_at TEXT NOT NULL,
+         PRIMARY KEY (source, external_id))`,
+    ),
+  ]);
+  tablesReady = true;
+}
+
+async function isIgnored(env: Env, source: string, ids: (string | null | undefined)[]) {
+  for (const id of ids) {
+    if (!id) continue;
+    if (await env.DB.prepare('SELECT 1 FROM external_ignored WHERE source = ? AND external_id = ?').bind(source, id).first()) return true;
+  }
+  return false;
 }
 
 async function findLinked(env: Env, source: string, ids: (string | null | undefined)[]): Promise<number | null> {
@@ -337,13 +360,23 @@ export async function applyBooking(env: Env, exec: ExecutionContext, b: External
   const label = sourceLabel(b.source);
   const now = nowIso();
   const existingId = await findLinked(env, b.source, [b.external_id, b.previous_external_id]);
+  if (!existingId && (await isIgnored(env, b.source, [b.external_id, b.previous_external_id]))) {
+    return { ok: true, action: 'ignored', reason: 'Esta reserva se eliminó de la agenda a mano.' };
+  }
 
   const when = (d: Date | string) => `${formatDateShort(d, tz)} ${formatTime(d, tz, use24)}`;
+
+  // Una reserva ya registrada que vuelve a llegar como "creada" (reenvío o sincronización periódica)
+  // no se toca: así nunca se deshacen cambios que hiciste en la agenda.
+  if (b.event === 'created' && existingId && (await findLinked(env, b.source, [b.external_id])) === existingId) {
+    return { ok: true, action: 'unchanged', appointment_id: existingId };
+  }
 
   // ----- Cancelación -----
   if (b.event === 'cancelled') {
     if (!existingId) return { ok: true, action: 'ignored', reason: 'No se encontró la cita a cancelar.' };
     const appt = (await fetchAppointment(env, existingId))!;
+    if (appt.status === 'cancelled') return { ok: true, action: 'unchanged', appointment_id: existingId };
     await env.DB.batch([
       env.DB.prepare("UPDATE appointments SET status = 'cancelled', cancelled_at = ?, updated_at = ? WHERE id = ?").bind(now, now, existingId),
       history(env, existingId, `Cancelada desde ${label}`, b.notes ?? null),
@@ -391,7 +424,18 @@ export async function applyBooking(env: Env, exec: ExecutionContext, b: External
   // ----- Nueva cita -----
   const [clientId, clientName] = await findOrCreateClient(env, b);
   const subtotal = round2(lines.reduce((s, l) => s + (Number(l.price) || 0), 0));
-  const finalPrice = b.price != null ? round2(b.price) : subtotal;
+  let finalPrice = b.price != null ? round2(b.price) : subtotal;
+  // El total viene en el enlace que abre la clienta y podría alterarse: si es menor que lo que
+  // permite tu catálogo (incluido el 5% por 3 o más servicios) se usa el del catálogo y se avisa.
+  let priceWarning: string | null = null;
+  const allMatched = lines.length > 0 && lines.every((l) => l.service_id != null);
+  if (allMatched && b.price != null && !b.followup) {
+    const minAllowed = round2(subtotal * (lines.length >= 3 ? 0.95 : 1));
+    if (finalPrice < minAllowed - 1) {
+      priceWarning = `⚠️ El total recibido (${formatMoney(finalPrice, 'MXN')}) era menor al de tu catálogo; se registró ${formatMoney(minAllowed, 'MXN')}`;
+      finalPrice = minAllowed;
+    }
+  }
   const currency = b.currency || (lines.find((l) => l.currency)?.currency as 'MXN' | 'USD' | undefined) || settings.default_currency;
   const conflict = await hasConflict(env, startIso, endIso);
   const notes = [b.notes, b.email && `Correo: ${b.email}`].filter(Boolean).join('\n') || null;
@@ -429,7 +473,7 @@ export async function applyBooking(env: Env, exec: ExecutionContext, b: External
     env.DB.prepare(
       'INSERT INTO external_bookings (source, external_id, appointment_id, created_at, updated_at) VALUES (?, ?, (SELECT MAX(id) FROM appointments), ?, ?)',
     ).bind(b.source, b.external_id, now, now),
-    history(env, 'last', `Cita agendada desde ${label}`, conflict ? `⚠️ Se empalma con ${conflict}` : null),
+    history(env, 'last', `Cita agendada desde ${label}`, [conflict && `⚠️ Se empalma con ${conflict}`, priceWarning].filter(Boolean).join(' · ') || null),
   ];
   if (b.paid_amount && b.paid_amount > 0) {
     stmts.push(
@@ -450,7 +494,7 @@ export async function applyBooking(env: Env, exec: ExecutionContext, b: External
     `${when(startIso)}${svc ? ` · ${svc}` : ''} · ${formatMoney(appt.final_price, appt.currency)}${conflict ? ` · ⚠️ se empalma con ${conflict}` : ''}`,
     `/citas/${appt.id}`,
   );
-  return { ok: true, action: 'created', appointment_id: appt.id, conflict: conflict ?? undefined };
+  return { ok: true, action: 'created', appointment_id: appt.id, conflict: conflict ?? undefined, price_adjusted: !!priceWarning };
 }
 
 // ---------- Handlers ----------
@@ -473,14 +517,4 @@ export async function bookingHook({ req, env, url, exec }: Ctx) {
   if (!booking) return json({ ok: true, action: 'ignored', reason: 'Evento no utilizado.' });
   if (!booking.external_id) throw new HttpError(400, 'La reserva no tiene identificador.');
   return json(await applyBooking(env, exec, booking, settings));
-}
-
-/** Datos para la sección "Integraciones" de Configuración (solo con sesión iniciada). */
-export async function integrationsInfo({ env, url }: Ctx) {
-  const base = `${url.origin}/api/hooks/booking`;
-  return json({
-    configured: !!env.WEBHOOK_SECRET,
-    url: env.WEBHOOK_SECRET ? `${base}?token=${encodeURIComponent(env.WEBHOOK_SECRET)}` : null,
-    base,
-  });
 }
