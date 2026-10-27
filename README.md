@@ -12,8 +12,6 @@ Aplicación web progresiva (PWA) **personal y privada** para administrar las cit
 
 ## ✨ Funciones
 
-
-
 | Sección | Qué hace |
 | --- | --- |
 | **Inicio** | Citas de hoy, próxima cita (con tiempo restante y acciones rápidas), pendientes, atrasadas sin marcar, completadas y canceladas del mes, pagos pendientes, dinero cobrado hoy y por cobrar. Agenda del día separada en *en curso*, *próximas*, *pendientes de atender*, *completadas*. |
@@ -112,6 +110,8 @@ El flujo `.github/workflows/deploy.yml` publica la app cada vez que haces *push*
 1. En Cloudflare crea un **API Token** con la plantilla *Edit Cloudflare Workers* y agrega permiso **D1: Edit**.
 2. En GitHub → *Settings → Secrets and variables → Actions* agrega `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID`.
 3. Asegúrate de haber puesto tu `database_id` en `wrangler.jsonc`.
+
+Si conectas el repositorio desde el panel de Cloudflare (*Workers & Pages → Import a repository*), revisa en *Settings → Build → Branch control* que la **Production branch** sea `main`.
 
 Los secretos `SETUP_CODE` y `VAPID_*` se configuran una sola vez con `wrangler secret put` y se conservan entre publicaciones.
 
