@@ -96,7 +96,11 @@ const str = (v: unknown, max = 300): string | null => {
   return s ? s.slice(0, max) : null;
 };
 
+/** "+52 618 123 4567", "(618) 123-4567"… → true. Cal.com manda así la ubicación "Número de teléfono del asistente". */
+export const looksLikePhone = (s: string | null | undefined) => !!s && /^\+?[\d\s().-]{8,20}$/.test(s.trim());
+
 function inferPlatform(location: string | null, phone: string | null): { platform: Platform; contact: string | null } {
+  if (looksLikePhone(location)) return { platform: 'whatsapp', contact: location };
   const loc = (location || '').toLowerCase();
   if (/meet|zoom|teams|daily|video|https?:\/\//.test(loc)) {
     return { platform: 'video', contact: /^https?:\/\//.test(location || '') ? location : null };
@@ -125,8 +129,9 @@ export function fromCalcom(body: any, tz: string): ExternalBooking | 'ping' | nu
   const p = body.payload || {};
   const r = p.responses || {};
   const attendee = (p.attendees || [])[0] || {};
-  const phone = str(r.attendeePhoneNumber) || str(r.phone) || str(attendee.phoneNumber) || str(p.smsReminderNumber);
   const location = str(p.videoCallData?.url) || str(p.metadata?.videoCallUrl) || str(r.location?.value?.optionValue) || str(p.location);
+  const phone =
+    str(r.attendeePhoneNumber) || str(r.phone) || str(attendee.phoneNumber) || str(p.smsReminderNumber) || (looksLikePhone(location) ? location : null);
   const { platform, contact } = inferPlatform(location, phone);
   const start = parseWhen(p.startTime, tz);
   if (!start) throw new HttpError(400, 'La reserva de Cal.com no tiene hora de inicio.');

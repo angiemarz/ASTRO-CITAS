@@ -2,7 +2,7 @@
 // - Agenda → Cal.com: si cancelas o reprogramas en la agenda una cita que vino de Cal.com, se refleja allá
 //   (y Cal.com avisa a la clienta por correo).
 // - Cal.com → Agenda: cada 30 minutos se revisan las reservas para recuperar avisos (webhooks) perdidos.
-import { parseWhen, splitServices, applyBooking, ensureTable, type ExternalBooking } from './routes/hooks';
+import { looksLikePhone, parseWhen, splitServices, applyBooking, ensureTable, type ExternalBooking } from './routes/hooks';
 import type { Env } from './env';
 import { nowIso } from './http';
 import { loadSettings } from './settings';
@@ -155,7 +155,8 @@ export function fromCalcomApi(b: any, tz: string): ExternalBooking | null {
   const r = b.bookingFieldsResponses || b.responses || {};
   const md = b.metadata || {};
   const attendee = (b.attendees || [])[0] || {};
-  const phone = pickResp(r, 'attendeePhoneNumber') || pickResp(r, 'phone') || attendee.phoneNumber || null;
+  const loc = pickResp(r, 'location') || (typeof b.location === 'string' ? b.location : null);
+  const phone = pickResp(r, 'attendeePhoneNumber') || pickResp(r, 'phone') || attendee.phoneNumber || (looksLikePhone(loc) ? loc : null);
   const services = splitServices(String(md.servicios ?? md.services ?? '') || null);
   const cita = /^(\d+)\s*(?:de|\/)\s*\d+/i.exec(String(md.cita ?? ''));
   const followup = !!cita && Number(cita[1]) > 1;

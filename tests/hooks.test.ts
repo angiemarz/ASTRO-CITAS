@@ -149,3 +149,16 @@ describe('respuestas de la API de Cal.com', () => {
     expect(r).toMatchObject({ event: 'created', client_name: 'Iris' });
   });
 });
+
+describe('ubicación "Número de teléfono del asistente"', () => {
+  it('el número en la ubicación se toma como WhatsApp y teléfono de la clienta', () => {
+    const b = fromCalcom(
+      {
+        triggerEvent: 'BOOKING_CREATED',
+        payload: { uid: 'tel-1', startTime: '2026-11-05T02:00:00Z', attendees: [{ name: 'Rosa' }], responses: { name: { value: 'Rosa' }, location: { value: { type: 'phone', optionValue: '+52 618 555 0101' } } }, location: '+52 618 555 0101' },
+      },
+      TZ,
+    );
+    expect(b).toMatchObject({ platform: 'whatsapp', contact: '+52 618 555 0101', phone: '+52 618 555 0101' });
+  });
+});
