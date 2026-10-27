@@ -146,7 +146,8 @@ const pickResp = (r: Record<string, any>, k: string) => {
 
 /** Convierte una reserva de la API v2 de Cal.com al formato del webhook. */
 export function fromCalcomApi(b: any, tz: string): ExternalBooking | null {
-  if (!b?.uid || !b.start) return null;
+  const startRaw = b?.start ?? b?.startTime;
+  if (!b?.uid || !startRaw) return null;
   // Las reservas viejas de una reprogramación aparecen como canceladas: no deben cancelar la cita nueva.
   if (b.rescheduled === true || b.rescheduledToUid) return null;
   const status = String(b.status || '').toLowerCase();
@@ -160,7 +161,7 @@ export function fromCalcomApi(b: any, tz: string): ExternalBooking | null {
   const followup = !!cita && Number(cita[1]) > 1;
   const total = Number(String(md.total ?? '').replace(/[^\d.]/g, ''));
   const meeting = b.meetingUrl || (typeof b.location === 'string' && /^https?:\/\//.test(b.location) ? b.location : null);
-  const start = parseWhen(b.start, tz);
+  const start = parseWhen(startRaw, tz);
   if (!start) return null;
   return {
     event,
@@ -171,7 +172,7 @@ export function fromCalcomApi(b: any, tz: string): ExternalBooking | null {
     phone,
     email: pickResp(r, 'email') || attendee.email || null,
     start,
-    end: parseWhen(b.end, tz),
+    end: parseWhen(b.end ?? b.endTime, tz),
     services: services.length ? services : [String(b.eventType?.title || b.title || '').trim()].filter(Boolean),
     platform: meeting ? 'video' : phone ? 'whatsapp' : 'other',
     contact: meeting || phone,
@@ -187,19 +188,42 @@ export function fromCalcomApi(b: any, tz: string): ExternalBooking | null {
 }
 
 /** Recupera reservas de Cal.com que no hayan llegado por webhook (o cancelaciones perdidas). */
-export async function reconcileCalcom(env: Env, exec: ExecutionContext): Promise<{ checked: number; changed: number; error?: string }> {
-  if (!calcomConfigured(env)) return { checked: 0, changed: 0 };
+/** Lista de reservas sin importar la forma de la respuesta ({data: [...]}, {data: {bookings}}, {bookings}). */
+export function bookingList(res: any): any[] {
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res?.data)) return res.data;
+  if (Array.isArray(res?.data?.bookings)) return res.data.bookings;
+  if (Array.isArray(res?.bookings)) return res.bookings;
+  return [];
+}
+
+export async function reconcileCalcom(
+  env: Env,
+  exec: ExecutionContext,
+): Promise<{ checked: number; changed: number; received: number; error?: string }> {
+  if (!calcomConfigured(env)) return { checked: 0, changed: 0, received: 0 };
   const settings = await loadSettings(env);
   let checked = 0;
   let changed = 0;
+  let received = 0;
   let error: string | undefined;
   try {
     const since = new Date(Date.now() - 24 * 3600_000).toISOString();
-    const res = await calApi<{ data?: any[] }>(
-      env,
+    // Se piden por estado y también sin filtro, y se aceptan las distintas formas de respuesta de la API.
+    const byUid = new Map<string, any>();
+    for (const query of [
       `/bookings?status=upcoming,unconfirmed,cancelled&afterStart=${encodeURIComponent(since)}&take=100&sortStart=asc`,
-    );
-    for (const raw of res?.data ?? []) {
+      `/bookings?afterStart=${encodeURIComponent(since)}&take=100`,
+    ]) {
+      try {
+        for (const raw of bookingList(await calApi(env, query))) if (raw?.uid) byUid.set(String(raw.uid), raw);
+      } catch (e) {
+        error ??= (e as Error).message;
+      }
+    }
+    received = byUid.size;
+    if (received) error = undefined;
+    for (const raw of byUid.values()) {
       const booking = fromCalcomApi(raw, settings.timezone);
       if (!booking) continue;
       checked++;
@@ -213,7 +237,7 @@ export async function reconcileCalcom(env: Env, exec: ExecutionContext): Promise
   await env.DB.prepare(
     "INSERT INTO settings (key, value) VALUES ('calcom_last_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   )
-    .bind(JSON.stringify({ at: nowIso(), checked, changed, error: error ?? null }))
+    .bind(JSON.stringify({ at: nowIso(), checked, changed, received, error: error ?? null }))
     .run();
-  return { checked, changed, error };
+  return { checked, changed, received, error };
 }

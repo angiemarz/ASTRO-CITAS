@@ -133,3 +133,19 @@ describe('reservas de la API v2 de Cal.com (sincronización)', () => {
     expect(fromCalcomApi({ uid: 'old', start: '2026-11-12T02:00:00Z', status: 'cancelled', rescheduled: true }, TZ)).toBeNull();
   });
 });
+
+import { bookingList } from '../worker/calcom';
+
+describe('respuestas de la API de Cal.com', () => {
+  it('acepta las distintas formas de la lista de reservas', () => {
+    const b = [{ uid: 'a' }];
+    expect(bookingList({ status: 'success', data: b })).toEqual(b);
+    expect(bookingList({ data: { bookings: b } })).toEqual(b);
+    expect(bookingList({ bookings: b })).toEqual(b);
+    expect(bookingList(null)).toEqual([]);
+  });
+  it('acepta startTime/endTime (formato anterior)', () => {
+    const r = fromCalcomApi({ uid: 'old-format', startTime: '2026-11-12T02:00:00Z', endTime: '2026-11-12T03:00:00Z', status: 'ACCEPTED', attendees: [{ name: 'Iris' }] }, TZ);
+    expect(r).toMatchObject({ event: 'created', client_name: 'Iris' });
+  });
+});

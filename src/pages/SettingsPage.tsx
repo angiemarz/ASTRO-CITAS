@@ -600,15 +600,16 @@ function IntegrationsSection() {
         base: string;
         ics_url: string | null;
         calcom_api: boolean;
-        calcom_last_sync: { at: string; checked: number; changed: number; error: string | null } | null;
+        calcom_last_sync: { at: string; checked: number; changed: number; received?: number; error: string | null } | null;
       }>('/integrations'),
   });
   const [syncing, setSyncing] = useState(false);
   const syncNow = async () => {
     setSyncing(true);
     try {
-      const r = await post<{ checked: number; changed: number; error?: string }>('/integrations/calcom/sync');
+      const r = await post<{ checked: number; changed: number; received: number; error?: string }>('/integrations/calcom/sync');
       if (r.error) toast(r.error, 'error');
+      else if (!r.received) toast('Cal.com no devolvió reservas próximas con esta llave de API. Revisa que la llave sea de la misma cuenta donde está tu evento.', 'info');
       else toast(r.changed ? `Sincronizado: ${r.changed} cambio(s) recuperado(s)` : `Todo al día (${r.checked} reserva(s) revisadas)`);
       info.refetch();
     } catch (e) {
@@ -717,7 +718,7 @@ function IntegrationsSection() {
               </p>
               {d.calcom_last_sync && (
                 <p className="text-xs text-plum-400">
-                  Última revisión: {new Date(d.calcom_last_sync.at).toLocaleString('es-MX')} · {d.calcom_last_sync.checked} reserva(s)
+                  Última revisión: {new Date(d.calcom_last_sync.at).toLocaleString('es-MX')} · {d.calcom_last_sync.received ?? d.calcom_last_sync.checked} reserva(s) en Cal.com
                   {d.calcom_last_sync.error ? ` · ⚠️ ${d.calcom_last_sync.error}` : ''}
                 </p>
               )}
