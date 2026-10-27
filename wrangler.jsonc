@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Nombre del Worker: la app quedará en https://astrobloomx-agenda.<tu-subdominio>.workers.dev
+  "name": "astrobloomx-agenda",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "astrobloomx-agenda",
+      // Reemplaza con el ID que te devuelve: npx wrangler d1 create astrobloomx-agenda
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Revisa recordatorios cada 5 minutos (Cron Triggers incluidos en el plan gratuito)
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    "VAPID_SUBJECT": "mailto:astrobloomx@example.com"
+  },
+  "observability": { "enabled": true }
+}

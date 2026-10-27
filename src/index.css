@@ -1,0 +1,301 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Cormorant Garamond', 'Times New Roman', serif;
+  --font-sans: 'Nunito', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-cream: #fffaf6;
+  --color-cream-2: #fdf4f1;
+
+  --color-lavender-50: #f8f5fd;
+  --color-lavender-100: #efe8fa;
+  --color-lavender-200: #e2d6f5;
+  --color-lavender-300: #cbb7ec;
+  --color-lavender-400: #b097df;
+  --color-lavender-500: #9277cf;
+
+  --color-blush-50: #fff5f9;
+  --color-blush-100: #fde7f0;
+  --color-blush-200: #f9d0e1;
+  --color-blush-300: #f3b0cb;
+
+  --color-rose-500: #e0569a;
+  --color-rose-600: #c93d84;
+  --color-rose-700: #a82e6c;
+
+  --color-plum-400: #8d5aa3;
+  --color-plum-500: #74428a;
+  --color-plum-600: #5e3172;
+  --color-plum-700: #4a2459;
+  --color-plum-800: #371a43;
+  --color-plum-900: #26112f;
+
+  --color-gold-300: #ead7a8;
+  --color-gold-400: #d9bd7b;
+  --color-gold-500: #c5a25a;
+  --color-gold-600: #a8853f;
+
+  --shadow-soft: 0 6px 24px -10px rgb(94 49 114 / 0.25), 0 2px 6px -2px rgb(94 49 114 / 0.08);
+  --shadow-glow: 0 10px 30px -10px rgb(224 86 154 / 0.45);
+  --radius-4xl: 2rem;
+}
+
+:root {
+  color-scheme: light;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --nav-h: 4.25rem;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  background: var(--color-cream);
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--font-sans);
+  color: var(--color-plum-800);
+  background-color: var(--color-cream);
+  background-image:
+    radial-gradient(1200px 600px at 110% -10%, rgb(249 208 225 / 0.55), transparent 60%),
+    radial-gradient(900px 500px at -20% 10%, rgb(226 214 245 / 0.7), transparent 60%),
+    radial-gradient(800px 600px at 50% 120%, rgb(239 232 250 / 0.8), transparent 60%);
+  background-attachment: fixed;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* Estrellitas muy sutiles de fondo */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.55;
+  background-image:
+    radial-gradient(1.2px 1.2px at 12% 18%, var(--color-gold-400) 50%, transparent 51%),
+    radial-gradient(1px 1px at 72% 12%, var(--color-lavender-400) 50%, transparent 51%),
+    radial-gradient(1.4px 1.4px at 88% 42%, var(--color-gold-300) 50%, transparent 51%),
+    radial-gradient(1px 1px at 32% 64%, var(--color-lavender-300) 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 58% 84%, var(--color-gold-400) 50%, transparent 51%),
+    radial-gradient(1px 1px at 8% 88%, var(--color-blush-300) 50%, transparent 51%);
+  background-size: 420px 420px;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+/* Evita el zoom de iOS al enfocar campos: mínimo 16px */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+button,
+a,
+[role='button'] {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (hover: hover) {
+  .hover-lift:hover {
+    transform: translateY(-1px);
+  }
+}
+
+.pt-safe {
+  padding-top: var(--safe-top);
+}
+.pb-safe {
+  padding-bottom: var(--safe-bottom);
+}
+.pb-nav {
+  padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 1.5rem);
+}
+@media (min-width: 1024px) {
+  .pb-nav {
+    padding-bottom: 2.5rem;
+  }
+}
+
+.card {
+  background: rgb(255 255 255 / 0.82);
+  border: 1px solid rgb(226 214 245 / 0.8);
+  border-radius: 1.5rem;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.gradient-hero {
+  background:
+    radial-gradient(circle at 85% 15%, rgb(234 215 168 / 0.45), transparent 35%),
+    linear-gradient(135deg, #74428a 0%, #a8509a 55%, #e0569a 100%);
+}
+
+.gradient-soft {
+  background: linear-gradient(135deg, var(--color-lavender-100), var(--color-blush-100));
+}
+
+.gold-line {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-gold-400), transparent);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.28s ease-out both;
+}
+.animate-sheet-up {
+  animation: sheet-up 0.3s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.animate-twinkle {
+  animation: twinkle 3s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-sheet-up,
+  .animate-twinkle {
+    animation: none;
+  }
+}
+
+/* ---------- FullCalendar con la estética AstroBloomx ---------- */
+.fc {
+  --fc-border-color: rgb(226 214 245 / 0.9);
+  --fc-today-bg-color: rgb(253 231 240 / 0.6);
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: var(--color-lavender-50);
+  --fc-now-indicator-color: var(--color-rose-500);
+  --fc-event-border-color: transparent;
+  --fc-highlight-color: rgb(203 183 236 / 0.35);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+}
+.fc .fc-toolbar-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-plum-700);
+}
+.fc .fc-toolbar-title::first-letter {
+  text-transform: uppercase;
+}
+.fc .fc-button {
+  background: white;
+  border: 1px solid var(--color-lavender-200);
+  color: var(--color-plum-600);
+  border-radius: 9999px !important;
+  padding: 0.4rem 0.8rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  box-shadow: none !important;
+}
+.fc .fc-button-group {
+  gap: 0.25rem;
+}
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  background: var(--color-plum-600);
+  border-color: var(--color-plum-600);
+  color: white;
+}
+.fc .fc-button:disabled {
+  opacity: 0.5;
+}
+.fc .fc-col-header-cell-cushion,
+.fc .fc-daygrid-day-number {
+  color: var(--color-plum-600);
+  font-weight: 700;
+  text-decoration: none;
+  text-transform: capitalize;
+}
+.fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  background: var(--color-rose-500);
+  color: white;
+  border-radius: 9999px;
+  min-width: 1.7rem;
+  text-align: center;
+}
+.fc .fc-event {
+  border-radius: 0.6rem;
+  padding: 1px 4px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.fc .fc-timegrid-slot-label-cushion,
+.fc .fc-list-event-time {
+  color: var(--color-plum-500);
+}
+.fc .fc-list-day-cushion {
+  background: var(--color-lavender-50);
+  text-transform: capitalize;
+}
+.fc-theme-standard .fc-scrollgrid {
+  border-radius: 1rem;
+  overflow: hidden;
+}
+.fc .fc-daygrid-more-link {
+  color: var(--color-rose-600);
+  font-weight: 700;
+}
+@media (max-width: 640px) {
+  .fc .fc-toolbar {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .fc .fc-toolbar-title {
+    font-size: 1.25rem;
+  }
+}

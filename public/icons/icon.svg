@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#74428a"/>
+      <stop offset="0.6" stop-color="#a8509a"/>
+      <stop offset="1" stop-color="#e0569a"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6e7bf"/>
+      <stop offset="1" stop-color="#c5a25a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.75" cy="0.2" r="0.5">
+      <stop offset="0" stop-color="#ead7a8" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ead7a8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+  <circle cx="256" cy="256" r="168" fill="none" stroke="url(#gold)" stroke-width="3" opacity="0.7"/>
+  <path d="M286 120a136 136 0 1 0 112 212A112 112 0 1 1 286 120Z" fill="url(#gold)"/>
+  <g transform="translate(200 264)" fill="#fde7f0">
+    <ellipse rx="21" ry="40" transform="rotate(0) translate(0 -35)"/>
+    <ellipse rx="21" ry="40" transform="rotate(72) translate(0 -35)"/>
+    <ellipse rx="21" ry="40" transform="rotate(144) translate(0 -35)"/>
+    <ellipse rx="21" ry="40" transform="rotate(216) translate(0 -35)"/>
+    <ellipse rx="21" ry="40" transform="rotate(288) translate(0 -35)"/>
+    <circle r="17" fill="#ead7a8"/>
+  </g>
+  <path d="M368 128l8 21 21 8-21 8-8 21-8-21-21-8 21-8z" fill="#fff6dc"/>
+  <circle cx="400" cy="224" r="7" fill="#fff6dc"/>
+  <circle cx="336" cy="376" r="6" fill="#fff6dc"/>
+  <circle cx="118" cy="140" r="5" fill="#fff6dc" opacity="0.8"/>
+</svg>

@@ -1,0 +1,4 @@
+# Copia este archivo como .dev.vars para desarrollo local (npm run vapid genera las llaves)
+SETUP_CODE=elige-un-codigo-secreto
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
