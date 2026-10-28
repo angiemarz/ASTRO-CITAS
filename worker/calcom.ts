@@ -145,6 +145,114 @@ export function attendeeEmail(base: string | null | undefined, appointmentId: nu
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
+// ---------- Formulario del evento en Cal.com ----------
+
+export interface BookingField {
+  type?: string;
+  slug?: string;
+  label?: string;
+  required?: boolean;
+  hidden?: boolean;
+  options?: ({ value?: string; label?: string } | string)[];
+}
+
+/** Campos que Cal.com llena por otras vías (asistente, ubicación, notas…): no se envían como respuestas extra. */
+const SYSTEM_FIELDS = new Set(['name', 'email', 'title', 'location', 'notes', 'guests', 'rescheduleReason', 'attendeePhoneNumber', 'smsReminderNumber']);
+
+const formCache = new Map<string, { at: number; fields: BookingField[]; locations: any[] }>();
+
+/** Lee los campos y ubicaciones del evento. Si falla, se sigue sin ellos (Cal.com dirá qué falta). */
+export async function eventForm(env: Env, event: { username?: string; teamSlug?: string; eventTypeSlug: string }) {
+  const key = `${event.username ?? event.teamSlug}/${event.eventTypeSlug}`;
+  const hit = formCache.get(key);
+  if (hit && Date.now() - hit.at < 60_000) return hit;
+  const empty = { at: Date.now(), fields: [] as BookingField[], locations: [] as any[] };
+  try {
+    const qs = new URLSearchParams({ eventSlug: event.eventTypeSlug });
+    if (event.username) qs.set('username', event.username);
+    const res = await calApi<any>(env, `/event-types?${qs}`, { headers: { 'cal-api-version': '2024-06-14' } });
+    const list = Array.isArray(res?.data) ? res.data : res?.data ? [res.data] : [];
+    const et = list.find((e: any) => e?.slug === event.eventTypeSlug) ?? list[0];
+    if (!et) return empty;
+    const out = { at: Date.now(), fields: (et.bookingFields ?? []) as BookingField[], locations: (et.locations ?? []) as any[] };
+    formCache.set(key, out);
+    return out;
+  } catch {
+    return empty;
+  }
+}
+
+const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/** Respuesta para cada campo obligatorio que Cal.com pide y la agenda no envía por otra vía. */
+export function fillRequiredFields(
+  fields: BookingField[],
+  d: { phone: string | null; contact: string | null; notes?: string; name: string; services: string },
+): Record<string, string | boolean | number> {
+  const out: Record<string, string | boolean | number> = {};
+  for (const f of fields) {
+    if (!f.slug || !f.required || f.hidden || SYSTEM_FIELDS.has(f.slug)) continue;
+    const label = norm(`${f.slug} ${f.label ?? ''}`);
+    const optionValue = (o: BookingField['options'] extends (infer T)[] | undefined ? T : never) => (typeof o === 'string' ? o : (o?.value ?? o?.label ?? ''));
+    switch (f.type) {
+      case 'phone':
+        if (d.phone) out[f.slug] = d.phone;
+        break;
+      case 'email':
+        break;
+      case 'select':
+      case 'radio':
+      case 'radioInput': {
+        const first = f.options?.map(optionValue).find(Boolean);
+        if (first) out[f.slug] = first;
+        break;
+      }
+      case 'multiselect':
+      case 'checkbox':
+        break;
+      case 'boolean':
+        out[f.slug] = true;
+        break;
+      case 'number':
+        out[f.slug] = 0;
+        break;
+      default:
+        // text, textarea…
+        if (/contact|whatsapp|tel|phone|celular|numero|numero/.test(label)) out[f.slug] = d.contact || d.phone || d.name;
+        else if (/servicio|service|consulta|lectura/.test(label)) out[f.slug] = d.services || d.notes || 'Cita registrada desde la agenda';
+        else if (/ciudad|ubicacion|donde|city|location/.test(label)) out[f.slug] = 'No indicada';
+        else out[f.slug] = d.notes || 'Cita registrada desde la agenda';
+    }
+  }
+  return out;
+}
+
+/** Ubicación de la reserva solo si el evento la admite; si no, se omite para que Cal.com use la del evento. */
+export function bookingLocation(locations: any[], phone: string | null, contact: string | null): Record<string, unknown> {
+  const types = new Set(locations.map((l) => l?.type));
+  if (phone && types.has('attendeePhone')) return { location: { type: 'attendeePhone', phone } };
+  if (types.has('attendeeDefined')) return { location: { type: 'attendeeDefined', location: contact || 'WhatsApp' } };
+  return {};
+}
+
+/**
+ * Crea la reserva. Si Cal.com pide un campo obligatorio que no se pudo leer del evento
+ * ("Missing required booking field response: Contacto"), se reintenta una vez con ese campo lleno.
+ */
+async function createBooking(env: Env, body: Record<string, any>, d: { contact: string; notes?: string }) {
+  try {
+    return await calApi<{ data?: any }>(env, '/bookings', { method: 'POST', body: JSON.stringify(body) });
+  } catch (e) {
+    const m = /Missing required booking field response: (.+?) - it is required/i.exec((e as Error).message);
+    if (!m) throw e;
+    const label = m[1].trim();
+    const slug = norm(label).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const value = /contact|whatsapp|tel|phone|celular|numero/.test(norm(label)) ? d.contact : d.notes || 'Cita registrada desde la agenda';
+    const retry = { ...body, bookingFieldsResponses: { ...body.bookingFieldsResponses, [slug]: value, [label]: value } };
+    return await calApi<{ data?: any }>(env, '/bookings', { method: 'POST', body: JSON.stringify(retry) });
+  }
+}
+
 /**
  * Crea en Cal.com una cita registrada en la agenda, para que Cal.com la ponga en Google Calendar al instante.
  * Mientras se crea, la cita se marca como "pendiente" para que el calendario ICS no la muestre y Cal.com no la vea
@@ -175,20 +283,26 @@ export async function pushCreateToCalcom(env: Env, appt: Appointment, settings: 
     .run();
 
   const services = appt.services.map((s) => s.name).join(' | ');
+  const notes = [services && `Servicios: ${services}`, appt.notes].filter(Boolean).join('\n') || undefined;
+  const contact = phone || appt.contact_value || client?.phone || null;
+  // Los campos obligatorios del formulario de TU evento (p. ej. "Contacto") se leen de Cal.com y se llenan solos.
+  const form = await eventForm(env, event);
+  const extra = fillRequiredFields(form.fields, { phone, contact, notes, name: appt.client_name, services });
   const body: Record<string, unknown> = {
     start: new Date(appt.start_at).toISOString(),
     ...event,
     attendee: { name: appt.client_name, email, timeZone: settings.timezone, language: 'es', ...(phone ? { phoneNumber: phone } : {}) },
     bookingFieldsResponses: {
       ...(phone ? { attendeePhoneNumber: phone } : {}),
-      notes: [services && `Servicios: ${services}`, appt.notes].filter(Boolean).join('\n') || undefined,
+      notes,
+      ...extra,
     },
-    ...(phone ? { location: { type: 'attendeePhone', phone } } : {}),
+    ...bookingLocation(form.locations, phone, contact),
     metadata: { astrobloomx_id: String(appt.id), origen: 'agenda', ...(services ? { servicios: services } : {}) },
   };
 
   try {
-    const res = await calApi<{ data?: any }>(env, '/bookings', { method: 'POST', body: JSON.stringify(body) });
+    const res = await createBooking(env, body, { contact: contact || appt.client_name, notes });
     const data = Array.isArray(res?.data) ? res.data[0] : res?.data;
     const uid = data?.uid ? String(data.uid) : null;
     const stmts = [env.DB.prepare('DELETE FROM external_bookings WHERE external_id = ?').bind(pending)];
