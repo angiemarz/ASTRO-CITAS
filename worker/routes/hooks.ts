@@ -36,6 +36,8 @@ export interface ExternalBooking {
   status?: AppointmentStatus | null;
   /** Segunda (o posterior) sesión de un paquete: el precio ya se registró en la primera. */
   followup?: boolean;
+  /** Si la reserva se creó desde la agenda, el id de esa cita (metadata astrobloomx_id). */
+  agenda_id?: number | null;
 }
 
 const enc = new TextEncoder();
@@ -96,7 +98,11 @@ const str = (v: unknown, max = 300): string | null => {
   return s ? s.slice(0, max) : null;
 };
 
+/** "+52 618 123 4567", "(618) 123-4567"… → true. Cal.com manda así la ubicación "Número de teléfono del asistente". */
+export const looksLikePhone = (s: string | null | undefined) => !!s && /^\+?[\d\s().-]{8,20}$/.test(s.trim());
+
 function inferPlatform(location: string | null, phone: string | null): { platform: Platform; contact: string | null } {
+  if (looksLikePhone(location)) return { platform: 'whatsapp', contact: location };
   const loc = (location || '').toLowerCase();
   if (/meet|zoom|teams|daily|video|https?:\/\//.test(loc)) {
     return { platform: 'video', contact: /^https?:\/\//.test(location || '') ? location : null };
@@ -125,8 +131,9 @@ export function fromCalcom(body: any, tz: string): ExternalBooking | 'ping' | nu
   const p = body.payload || {};
   const r = p.responses || {};
   const attendee = (p.attendees || [])[0] || {};
-  const phone = str(r.attendeePhoneNumber) || str(r.phone) || str(attendee.phoneNumber) || str(p.smsReminderNumber);
   const location = str(p.videoCallData?.url) || str(p.metadata?.videoCallUrl) || str(r.location?.value?.optionValue) || str(p.location);
+  const phone =
+    str(r.attendeePhoneNumber) || str(r.phone) || str(attendee.phoneNumber) || str(p.smsReminderNumber) || (looksLikePhone(location) ? location : null);
   const { platform, contact } = inferPlatform(location, phone);
   const start = parseWhen(p.startTime, tz);
   if (!start) throw new HttpError(400, 'La reserva de Cal.com no tiene hora de inicio.');
@@ -171,6 +178,7 @@ export function fromCalcom(body: any, tz: string): ExternalBooking | 'ping' | nu
       .join('\n') || null,
     status: trigger === 'BOOKING_REQUESTED' ? 'scheduled' : 'confirmed',
     followup: laterSession,
+    agenda_id: Number(md.astrobloomx_id) || null,
   };
 }
 
@@ -359,6 +367,18 @@ export async function applyBooking(env: Env, exec: ExecutionContext, b: External
   const use24 = settings.time_format === '24h';
   const label = sourceLabel(b.source);
   const now = nowIso();
+  // Reserva que la propia agenda creó en Cal.com: solo se enlaza con su cita (puede llegar antes que la respuesta).
+  if (b.event === 'created' && b.agenda_id) {
+    const own = await env.DB.prepare('SELECT id FROM appointments WHERE id = ?').bind(b.agenda_id).first<{ id: number }>();
+    if (!own) return { ok: true, action: 'ignored', reason: 'La cita de la agenda ya no existe.' };
+    await env.DB.batch([
+      env.DB.prepare(
+        'INSERT OR IGNORE INTO external_bookings (source, external_id, appointment_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      ).bind(b.source, b.external_id, own.id, now, now),
+      env.DB.prepare("DELETE FROM external_bookings WHERE external_id = ?").bind(`pending-${own.id}`),
+    ]);
+    return { ok: true, action: 'unchanged', appointment_id: own.id };
+  }
   const existingId = await findLinked(env, b.source, [b.external_id, b.previous_external_id]);
   if (!existingId && (await isIgnored(env, b.source, [b.external_id, b.previous_external_id]))) {
     return { ok: true, action: 'ignored', reason: 'Esta reserva se eliminó de la agenda a mano.' };

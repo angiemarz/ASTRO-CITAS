@@ -84,7 +84,7 @@ export function SettingsPage() {
         <div className="mx-auto max-w-2xl space-y-5">
           <BrandSection s={s} patch={patch} />
           <NotificationsSection s={s} patch={patch} />
-          <IntegrationsSection />
+          <IntegrationsSection s={s} patch={patch} />
 
           <Section icon={<Clock />} title="Fecha y hora">
             <Field label="Zona horaria">
@@ -589,7 +589,11 @@ const MAKE_EXAMPLE = `{
   "notes": "Primera vez"
 }`;
 
-function IntegrationsSection() {
+function IntegrationsSection({ s, patch }: { s: Settings; patch: (p: Partial<Settings>) => void }) {
+  const [eventUrl, setEventUrl] = useState(s.calcom_event_url ?? '');
+  const [attEmail, setAttEmail] = useState(s.calcom_attendee_email ?? '');
+  useEffect(() => setEventUrl(s.calcom_event_url ?? ''), [s.calcom_event_url]);
+  useEffect(() => setAttEmail(s.calcom_attendee_email ?? ''), [s.calcom_attendee_email]);
   const { toast } = useFeedback();
   const info = useQuery({
     queryKey: ['integrations'],
@@ -600,15 +604,16 @@ function IntegrationsSection() {
         base: string;
         ics_url: string | null;
         calcom_api: boolean;
-        calcom_last_sync: { at: string; checked: number; changed: number; error: string | null } | null;
+        calcom_last_sync: { at: string; checked: number; changed: number; received?: number; error: string | null } | null;
       }>('/integrations'),
   });
   const [syncing, setSyncing] = useState(false);
   const syncNow = async () => {
     setSyncing(true);
     try {
-      const r = await post<{ checked: number; changed: number; error?: string }>('/integrations/calcom/sync');
+      const r = await post<{ checked: number; changed: number; received: number; error?: string }>('/integrations/calcom/sync');
       if (r.error) toast(r.error, 'error');
+      else if (!r.received) toast('Cal.com no devolvió reservas próximas con esta llave de API. Revisa que la llave sea de la misma cuenta donde está tu evento.', 'info');
       else toast(r.changed ? `Sincronizado: ${r.changed} cambio(s) recuperado(s)` : `Todo al día (${r.checked} reserva(s) revisadas)`);
       info.refetch();
     } catch (e) {
@@ -717,13 +722,40 @@ function IntegrationsSection() {
               </p>
               {d.calcom_last_sync && (
                 <p className="text-xs text-plum-400">
-                  Última revisión: {new Date(d.calcom_last_sync.at).toLocaleString('es-MX')} · {d.calcom_last_sync.checked} reserva(s)
+                  Última revisión: {new Date(d.calcom_last_sync.at).toLocaleString('es-MX')} · {d.calcom_last_sync.received ?? d.calcom_last_sync.checked} reserva(s) en Cal.com
                   {d.calcom_last_sync.error ? ` · ⚠️ ${d.calcom_last_sync.error}` : ''}
                 </p>
               )}
               <Button size="sm" variant="secondary" loading={syncing} onClick={syncNow}>
                 Sincronizar ahora
               </Button>
+              <div className="gold-line" />
+              <p className="font-bold text-plum-700">📅 Mis citas registradas aquí → Cal.com → Google Calendar</p>
+              <Toggle
+                checked={s.calcom_push_manual}
+                onChange={(v) => patch({ calcom_push_manual: v })}
+                label="Agregar a Cal.com las citas que registro en la agenda"
+                description="Cal.com las pone al instante en tu Google Calendar y bloquea ese horario."
+              />
+              <Field label="Enlace de tu evento en Cal.com" hint="El mismo que usa tu página de Canva, por ejemplo https://cal.com/tu-usuario/cita-astrobloomx">
+                <div className="flex gap-2">
+                  <Input value={eventUrl} onChange={(e) => setEventUrl(e.target.value)} placeholder="https://cal.com/…/cita-astrobloomx" autoCapitalize="none" />
+                  <Button variant="secondary" disabled={eventUrl === (s.calcom_event_url ?? '')} onClick={() => patch({ calcom_event_url: eventUrl })}>
+                    Guardar
+                  </Button>
+                </div>
+              </Field>
+              <Field
+                label="Correo para esas citas"
+                hint="Cal.com exige un correo de asistente. Se usa el tuyo con un alias (+cita…), así los avisos de Cal.com te llegan a ti y no a la clienta."
+              >
+                <div className="flex gap-2">
+                  <Input type="email" value={attEmail} onChange={(e) => setAttEmail(e.target.value)} placeholder="tu-correo@gmail.com" autoCapitalize="none" />
+                  <Button variant="secondary" disabled={attEmail === (s.calcom_attendee_email ?? '')} onClick={() => patch({ calcom_attendee_email: attEmail })}>
+                    Guardar
+                  </Button>
+                </div>
+              </Field>
             </>
           ) : (
             <p className="text-sm text-plum-500">

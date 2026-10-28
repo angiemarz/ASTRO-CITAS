@@ -181,6 +181,12 @@ export interface Settings {
   week_starts_monday: boolean;
   calendar_start_hour: number;
   calendar_end_hour: number;
+  /** Enlace del evento de Cal.com (p. ej. https://cal.com/usuario/cita) para crear allá las citas registradas a mano. */
+  calcom_event_url: string | null;
+  /** Crear en Cal.com (y por tanto en Google Calendar) las citas que se registran en la agenda. */
+  calcom_push_manual: boolean;
+  /** Correo que se usa como asistente en Cal.com cuando la clienta no dio el suyo. */
+  calcom_attendee_email: string | null;
 }
 
 export interface DashboardStats {

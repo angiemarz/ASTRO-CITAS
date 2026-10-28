@@ -133,3 +133,49 @@ describe('reservas de la API v2 de Cal.com (sincronización)', () => {
     expect(fromCalcomApi({ uid: 'old', start: '2026-11-12T02:00:00Z', status: 'cancelled', rescheduled: true }, TZ)).toBeNull();
   });
 });
+
+import { bookingList } from '../worker/calcom';
+
+describe('respuestas de la API de Cal.com', () => {
+  it('acepta las distintas formas de la lista de reservas', () => {
+    const b = [{ uid: 'a' }];
+    expect(bookingList({ status: 'success', data: b })).toEqual(b);
+    expect(bookingList({ data: { bookings: b } })).toEqual(b);
+    expect(bookingList({ bookings: b })).toEqual(b);
+    expect(bookingList(null)).toEqual([]);
+  });
+  it('acepta startTime/endTime (formato anterior)', () => {
+    const r = fromCalcomApi({ uid: 'old-format', startTime: '2026-11-12T02:00:00Z', endTime: '2026-11-12T03:00:00Z', status: 'ACCEPTED', attendees: [{ name: 'Iris' }] }, TZ);
+    expect(r).toMatchObject({ event: 'created', client_name: 'Iris' });
+  });
+});
+
+describe('ubicación "Número de teléfono del asistente"', () => {
+  it('el número en la ubicación se toma como WhatsApp y teléfono de la clienta', () => {
+    const b = fromCalcom(
+      {
+        triggerEvent: 'BOOKING_CREATED',
+        payload: { uid: 'tel-1', startTime: '2026-11-05T02:00:00Z', attendees: [{ name: 'Rosa' }], responses: { name: { value: 'Rosa' }, location: { value: { type: 'phone', optionValue: '+52 618 555 0101' } } }, location: '+52 618 555 0101' },
+      },
+      TZ,
+    );
+    expect(b).toMatchObject({ platform: 'whatsapp', contact: '+52 618 555 0101', phone: '+52 618 555 0101' });
+  });
+});
+
+import { attendeeEmail, parseEventUrl } from '../worker/calcom';
+
+describe('crear en Cal.com las citas de la agenda', () => {
+  it('interpreta el enlace del evento', () => {
+    expect(parseEventUrl('https://cal.com/astrobloomx-citas/cita-astrobloomx')).toEqual({ username: 'astrobloomx-citas', eventTypeSlug: 'cita-astrobloomx' });
+    expect(parseEventUrl('https://cal.com/team/astro/cita')).toEqual({ teamSlug: 'astro', eventTypeSlug: 'cita' });
+    expect(parseEventUrl('https://cal.com/solo-usuario')).toBeNull();
+    expect(parseEventUrl(null)).toBeNull();
+  });
+  it('arma un correo alias por cita en Gmail', () => {
+    expect(attendeeEmail('mailto:marz.anibarmar@gmail.com', 12)).toBe('marz.anibarmar+cita12@gmail.com');
+    expect(attendeeEmail('yo+algo@gmail.com', 3)).toBe('yo+cita3@gmail.com');
+    expect(attendeeEmail('hola@astrobloomx.com', 3)).toBe('hola@astrobloomx.com');
+    expect(attendeeEmail('', 3)).toBeNull();
+  });
+});
