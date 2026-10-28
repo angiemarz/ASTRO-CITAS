@@ -82,7 +82,8 @@ export function HomePage() {
         </div>
       </header>
 
-      <Page className="-mt-10 pt-0">
+      {/* relative z-10: las tarjetas se encimen sobre el banner (que es relative) sin quedar tapadas por él; las tarjetas son blancas sólidas para que no se transparente el banner */}
+      <Page className="relative z-10 -mt-10 pt-0">
         {isLoading && <LoadingBlock />}
         <ErrorBox error={error} />
         {data && (
@@ -167,7 +168,7 @@ function Stat({
   small?: boolean;
 }) {
   return (
-    <Link to={to} className="card hover-lift flex flex-col gap-2 p-3.5 transition">
+    <Link to={to} className="card hover-lift flex flex-col gap-2 bg-white! p-3.5 transition">
       <span className={cx('flex size-9 items-center justify-center rounded-xl bg-gradient-to-br [&>svg]:size-[18px]', TONES[tone])}>{icon}</span>
       <span className={cx('font-extrabold text-plum-800', small ? 'text-[15px] leading-snug' : 'text-2xl leading-none')}>{value}</span>
       <span className="text-xs leading-tight font-bold text-plum-500">{label}</span>
