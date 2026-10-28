@@ -36,6 +36,8 @@ export interface ExternalBooking {
   status?: AppointmentStatus | null;
   /** Segunda (o posterior) sesión de un paquete: el precio ya se registró en la primera. */
   followup?: boolean;
+  /** Si la reserva se creó desde la agenda, el id de esa cita (metadata astrobloomx_id). */
+  agenda_id?: number | null;
 }
 
 const enc = new TextEncoder();
@@ -176,6 +178,7 @@ export function fromCalcom(body: any, tz: string): ExternalBooking | 'ping' | nu
       .join('\n') || null,
     status: trigger === 'BOOKING_REQUESTED' ? 'scheduled' : 'confirmed',
     followup: laterSession,
+    agenda_id: Number(md.astrobloomx_id) || null,
   };
 }
 
@@ -364,6 +367,18 @@ export async function applyBooking(env: Env, exec: ExecutionContext, b: External
   const use24 = settings.time_format === '24h';
   const label = sourceLabel(b.source);
   const now = nowIso();
+  // Reserva que la propia agenda creó en Cal.com: solo se enlaza con su cita (puede llegar antes que la respuesta).
+  if (b.event === 'created' && b.agenda_id) {
+    const own = await env.DB.prepare('SELECT id FROM appointments WHERE id = ?').bind(b.agenda_id).first<{ id: number }>();
+    if (!own) return { ok: true, action: 'ignored', reason: 'La cita de la agenda ya no existe.' };
+    await env.DB.batch([
+      env.DB.prepare(
+        'INSERT OR IGNORE INTO external_bookings (source, external_id, appointment_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      ).bind(b.source, b.external_id, own.id, now, now),
+      env.DB.prepare("DELETE FROM external_bookings WHERE external_id = ?").bind(`pending-${own.id}`),
+    ]);
+    return { ok: true, action: 'unchanged', appointment_id: own.id };
+  }
   const existingId = await findLinked(env, b.source, [b.external_id, b.previous_external_id]);
   if (!existingId && (await isIgnored(env, b.source, [b.external_id, b.previous_external_id]))) {
     return { ok: true, action: 'ignored', reason: 'Esta reserva se eliminó de la agenda a mano.' };

@@ -28,6 +28,9 @@ export const FALLBACK_SETTINGS: Settings = {
   week_starts_monday: true,
   calendar_start_hour: 7,
   calendar_end_hour: 23,
+  calcom_event_url: null,
+  calcom_push_manual: true,
+  calcom_attendee_email: null,
 };
 
 export function useSettingsQuery(enabled = true) {

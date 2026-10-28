@@ -84,7 +84,7 @@ export function SettingsPage() {
         <div className="mx-auto max-w-2xl space-y-5">
           <BrandSection s={s} patch={patch} />
           <NotificationsSection s={s} patch={patch} />
-          <IntegrationsSection />
+          <IntegrationsSection s={s} patch={patch} />
 
           <Section icon={<Clock />} title="Fecha y hora">
             <Field label="Zona horaria">
@@ -589,7 +589,11 @@ const MAKE_EXAMPLE = `{
   "notes": "Primera vez"
 }`;
 
-function IntegrationsSection() {
+function IntegrationsSection({ s, patch }: { s: Settings; patch: (p: Partial<Settings>) => void }) {
+  const [eventUrl, setEventUrl] = useState(s.calcom_event_url ?? '');
+  const [attEmail, setAttEmail] = useState(s.calcom_attendee_email ?? '');
+  useEffect(() => setEventUrl(s.calcom_event_url ?? ''), [s.calcom_event_url]);
+  useEffect(() => setAttEmail(s.calcom_attendee_email ?? ''), [s.calcom_attendee_email]);
   const { toast } = useFeedback();
   const info = useQuery({
     queryKey: ['integrations'],
@@ -725,6 +729,33 @@ function IntegrationsSection() {
               <Button size="sm" variant="secondary" loading={syncing} onClick={syncNow}>
                 Sincronizar ahora
               </Button>
+              <div className="gold-line" />
+              <p className="font-bold text-plum-700">📅 Mis citas registradas aquí → Cal.com → Google Calendar</p>
+              <Toggle
+                checked={s.calcom_push_manual}
+                onChange={(v) => patch({ calcom_push_manual: v })}
+                label="Agregar a Cal.com las citas que registro en la agenda"
+                description="Cal.com las pone al instante en tu Google Calendar y bloquea ese horario."
+              />
+              <Field label="Enlace de tu evento en Cal.com" hint="El mismo que usa tu página de Canva, por ejemplo https://cal.com/tu-usuario/cita-astrobloomx">
+                <div className="flex gap-2">
+                  <Input value={eventUrl} onChange={(e) => setEventUrl(e.target.value)} placeholder="https://cal.com/…/cita-astrobloomx" autoCapitalize="none" />
+                  <Button variant="secondary" disabled={eventUrl === (s.calcom_event_url ?? '')} onClick={() => patch({ calcom_event_url: eventUrl })}>
+                    Guardar
+                  </Button>
+                </div>
+              </Field>
+              <Field
+                label="Correo para esas citas"
+                hint="Cal.com exige un correo de asistente. Se usa el tuyo con un alias (+cita…), así los avisos de Cal.com te llegan a ti y no a la clienta."
+              >
+                <div className="flex gap-2">
+                  <Input type="email" value={attEmail} onChange={(e) => setAttEmail(e.target.value)} placeholder="tu-correo@gmail.com" autoCapitalize="none" />
+                  <Button variant="secondary" disabled={attEmail === (s.calcom_attendee_email ?? '')} onClick={() => patch({ calcom_attendee_email: attEmail })}>
+                    Guardar
+                  </Button>
+                </div>
+              </Field>
             </>
           ) : (
             <p className="text-sm text-plum-500">

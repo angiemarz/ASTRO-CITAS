@@ -36,6 +36,7 @@ const router = new Router()
   .post('/api/appointments/:id/status', appts.setStatus)
   .post('/api/appointments/:id/reschedule', appts.reschedule)
   .post('/api/appointments/:id/payments', appts.addPayment)
+  .post('/api/appointments/:id/calcom', appts.sendToCalcom)
   // Pagos
   .get('/api/payments', appts.listPayments)
   .delete('/api/payments/:id', appts.deletePayment)

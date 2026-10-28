@@ -162,3 +162,20 @@ describe('ubicación "Número de teléfono del asistente"', () => {
     expect(b).toMatchObject({ platform: 'whatsapp', contact: '+52 618 555 0101', phone: '+52 618 555 0101' });
   });
 });
+
+import { attendeeEmail, parseEventUrl } from '../worker/calcom';
+
+describe('crear en Cal.com las citas de la agenda', () => {
+  it('interpreta el enlace del evento', () => {
+    expect(parseEventUrl('https://cal.com/astrobloomx-citas/cita-astrobloomx')).toEqual({ username: 'astrobloomx-citas', eventTypeSlug: 'cita-astrobloomx' });
+    expect(parseEventUrl('https://cal.com/team/astro/cita')).toEqual({ teamSlug: 'astro', eventTypeSlug: 'cita' });
+    expect(parseEventUrl('https://cal.com/solo-usuario')).toBeNull();
+    expect(parseEventUrl(null)).toBeNull();
+  });
+  it('arma un correo alias por cita en Gmail', () => {
+    expect(attendeeEmail('mailto:marz.anibarmar@gmail.com', 12)).toBe('marz.anibarmar+cita12@gmail.com');
+    expect(attendeeEmail('yo+algo@gmail.com', 3)).toBe('yo+cita3@gmail.com');
+    expect(attendeeEmail('hola@astrobloomx.com', 3)).toBe('hola@astrobloomx.com');
+    expect(attendeeEmail('', 3)).toBeNull();
+  });
+});

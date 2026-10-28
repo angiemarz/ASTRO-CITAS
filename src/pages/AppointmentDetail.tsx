@@ -1,5 +1,6 @@
 import {
   Ban,
+  CalendarPlus,
   CalendarClock,
   Check,
   Clock,
@@ -27,7 +28,9 @@ import { PlatformIcon } from '../components/PlatformIcon';
 import { Button, Card, cx, IconButton, LoadingBlock, PaymentBadge, StatusBadge } from '../components/ui';
 import { useAppointment, useDeleteAppointment, useDeletePayment } from '../lib/hooks';
 import { isOpen, isOverdue } from '../lib/pending';
-import { useFmt } from '../lib/settings';
+import { useFmt, useSettings } from '../lib/settings';
+import { post } from '../lib/api';
+import { useInvalidateAppointments } from '../lib/hooks';
 
 const SOURCE_NAMES: Record<string, string> = { calcom: 'Cal.com', canva: 'Canva', make: 'Make', notion: 'Notion', google: 'Google Calendar', zapier: 'Zapier' };
 
@@ -41,6 +44,21 @@ export function AppointmentDetailPage() {
   const delAppt = useDeleteAppointment();
   const delPay = useDeletePayment();
   const [menu, setMenu] = useState(false);
+  const settings = useSettings();
+  const invalidate = useInvalidateAppointments();
+  const [sending, setSending] = useState(false);
+  const sendToCalcom = async () => {
+    setSending(true);
+    try {
+      await post(`/appointments/${id}/calcom`);
+      await invalidate();
+      toast('✨ Agregada a Cal.com y a tu Google Calendar');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setSending(false);
+    }
+  };
 
   if (isLoading) return <LoadingBlock />;
   if (error || !a)
@@ -96,7 +114,9 @@ export function AppointmentDetailPage() {
               {overdue && <span className="rounded-full bg-rose-500 px-2.5 py-0.5 text-sm font-bold text-white">Atrasada sin marcar</span>}
               {a.external_source && (
                 <span className="rounded-full bg-gold-300/40 px-2.5 py-0.5 text-sm font-bold text-gold-600">
-                  Agendada en {SOURCE_NAMES[a.external_source] ?? a.external_source}
+                  {a.external_source === 'agenda-calcom'
+                    ? 'En Cal.com y Google Calendar'
+                    : `Agendada en ${SOURCE_NAMES[a.external_source] ?? a.external_source}`}
                 </span>
               )}
             </div>
@@ -140,6 +160,11 @@ export function AppointmentDetailPage() {
                   Cancelar
                 </Button>
               </div>
+            )}
+            {open && !a.external_source && settings.calcom_event_url && new Date(a.start_at).getTime() > Date.now() && (
+              <Button variant="gold" size="sm" className="mt-3 w-full" loading={sending} icon={<CalendarPlus className="size-4" />} onClick={sendToCalcom}>
+                Agregar a Cal.com y Google Calendar
+              </Button>
             )}
             {a.attended_at && (
               <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800">

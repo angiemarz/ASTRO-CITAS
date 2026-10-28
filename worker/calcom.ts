@@ -3,6 +3,8 @@
 //   (y Cal.com avisa a la clienta por correo).
 // - Cal.com → Agenda: cada 30 minutos se revisan las reservas para recuperar avisos (webhooks) perdidos.
 import { looksLikePhone, parseWhen, splitServices, applyBooking, ensureTable, type ExternalBooking } from './routes/hooks';
+import { normalizePhoneForWa } from '../shared/domain';
+import type { Appointment, Settings } from '../shared/types';
 import type { Env } from './env';
 import { nowIso } from './http';
 import { loadSettings } from './settings';
@@ -40,7 +42,7 @@ async function calApi<T = any>(env: Env, path: string, init: RequestInit = {}): 
 export async function linkedCalcomUid(env: Env, appointmentId: number): Promise<string | null> {
   try {
     const row = await env.DB.prepare(
-      "SELECT external_id FROM external_bookings WHERE source = 'calcom' AND appointment_id = ? ORDER BY rowid DESC LIMIT 1",
+      "SELECT external_id FROM external_bookings WHERE source = 'calcom' AND appointment_id = ? AND external_id NOT LIKE 'pending-%' ORDER BY rowid DESC LIMIT 1",
     )
       .bind(appointmentId)
       .first<{ external_id: string }>();
@@ -53,10 +55,14 @@ export async function linkedCalcomUid(env: Env, appointmentId: number): Promise<
 /** Origen externo de una cita ("calcom", "canva"…), o null si la registraste a mano. */
 export async function externalSource(env: Env, appointmentId: number): Promise<string | null> {
   try {
-    const row = await env.DB.prepare('SELECT source FROM external_bookings WHERE appointment_id = ? ORDER BY rowid DESC LIMIT 1')
-      .bind(appointmentId)
-      .first<{ source: string }>();
-    return row?.source ?? null;
+    const row = await env.DB.prepare(
+      `SELECT source, EXISTS (SELECT 1 FROM appointment_history h WHERE h.appointment_id = ? AND h.action = 'Agregada a Cal.com') AS pushed
+       FROM external_bookings WHERE appointment_id = ? AND external_id NOT LIKE 'pending-%' ORDER BY rowid DESC LIMIT 1`,
+    )
+      .bind(appointmentId, appointmentId)
+      .first<{ source: string; pushed: number }>();
+    if (!row) return null;
+    return row.pushed ? 'agenda-calcom' : row.source;
   } catch {
     return null;
   }
@@ -114,6 +120,102 @@ export async function pushToCalcom(
   } catch (e) {
     const warning = `No se pudo actualizar en Cal.com (${(e as Error).message}). Hazlo manualmente allá.`;
     await historyStmt(env, appointmentId, '⚠️ Error con Cal.com', warning).run();
+    return warning;
+  }
+}
+
+/** "https://cal.com/usuario/evento" → { username, eventTypeSlug } (o teamSlug para eventos de equipo). */
+export function parseEventUrl(url: string | null): { username?: string; teamSlug?: string; eventTypeSlug: string } | null {
+  if (!url) return null;
+  try {
+    const parts = new URL(url).pathname.split('/').filter(Boolean);
+    if (parts[0] === 'team' && parts.length >= 3) return { teamSlug: parts[1], eventTypeSlug: parts[2] };
+    if (parts.length >= 2) return { username: parts[0], eventTypeSlug: parts[1] };
+  } catch {
+    /* enlace inválido */
+  }
+  return null;
+}
+
+/** Correo de asistente para Cal.com: alias +cita en Gmail para que cada reserva sea distinta y llegue a tu bandeja. */
+export function attendeeEmail(base: string | null | undefined, appointmentId: number): string | null {
+  const email = (base || '').trim().replace(/^mailto:/i, '');
+  const m = /^([^@\s+]+)(?:\+[^@]*)?@(gmail\.com|googlemail\.com)$/i.exec(email);
+  if (m) return `${m[1]}+cita${appointmentId}@${m[2]}`;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+/**
+ * Crea en Cal.com una cita registrada en la agenda, para que Cal.com la ponga en Google Calendar al instante.
+ * Mientras se crea, la cita se marca como "pendiente" para que el calendario ICS no la muestre y Cal.com no la vea
+ * como un choque consigo misma. Devuelve un aviso si no se pudo.
+ */
+export async function pushCreateToCalcom(env: Env, appt: Appointment, settings: Settings): Promise<string | null> {
+  if (!calcomConfigured(env) || !settings.calcom_push_manual) return null;
+  const event = parseEventUrl(settings.calcom_event_url);
+  if (!event) return null;
+  if (['cancelled', 'no_show', 'completed'].includes(appt.status)) return null;
+  if (new Date(appt.start_at).getTime() < Date.now()) return null;
+
+  const email = attendeeEmail(settings.calcom_attendee_email || env.VAPID_SUBJECT, appt.id);
+  if (!email) return 'No se agregó a Cal.com: falta el correo para citas registradas a mano (Configuración → Integraciones).';
+
+  const client = await env.DB.prepare('SELECT phone FROM clients WHERE id = ?').bind(appt.client_id ?? -1).first<{ phone: string | null }>();
+  const rawPhone = appt.platform === 'whatsapp' || appt.platform === 'phone' ? appt.contact_value || client?.phone : client?.phone;
+  const digits = rawPhone ? normalizePhoneForWa(rawPhone) : '';
+  const phone = digits.length >= 10 ? `+${digits}` : null;
+
+  await ensureTable(env);
+  const now = nowIso();
+  const pending = `pending-${appt.id}`;
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO external_bookings (source, external_id, appointment_id, created_at, updated_at) VALUES ('calcom', ?, ?, ?, ?)",
+  )
+    .bind(pending, appt.id, now, now)
+    .run();
+
+  const services = appt.services.map((s) => s.name).join(' | ');
+  const body: Record<string, unknown> = {
+    start: new Date(appt.start_at).toISOString(),
+    ...event,
+    attendee: { name: appt.client_name, email, timeZone: settings.timezone, language: 'es', ...(phone ? { phoneNumber: phone } : {}) },
+    bookingFieldsResponses: {
+      ...(phone ? { attendeePhoneNumber: phone } : {}),
+      notes: [services && `Servicios: ${services}`, appt.notes].filter(Boolean).join('\n') || undefined,
+    },
+    ...(phone ? { location: { type: 'attendeePhone', phone } } : {}),
+    metadata: { astrobloomx_id: String(appt.id), origen: 'agenda', ...(services ? { servicios: services } : {}) },
+  };
+
+  try {
+    const res = await calApi<{ data?: any }>(env, '/bookings', { method: 'POST', body: JSON.stringify(body) });
+    const data = Array.isArray(res?.data) ? res.data[0] : res?.data;
+    const uid = data?.uid ? String(data.uid) : null;
+    const stmts = [env.DB.prepare('DELETE FROM external_bookings WHERE external_id = ?').bind(pending)];
+    if (uid) {
+      stmts.push(
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO external_bookings (source, external_id, appointment_id, created_at, updated_at) VALUES ('calcom', ?, ?, ?, ?)",
+        ).bind(uid, appt.id, now, now),
+      );
+    }
+    const minutes = Math.round((new Date(appt.end_at).getTime() - new Date(appt.start_at).getTime()) / 60000);
+    const end = data?.end ? new Date(data.end).getTime() : null;
+    const calMinutes = end ? Math.round((end - new Date(appt.start_at).getTime()) / 60000) : null;
+    stmts.push(
+      historyStmt(
+        env,
+        appt.id,
+        'Agregada a Cal.com',
+        `Cal.com la puso en tu Google Calendar.${calMinutes && calMinutes !== minutes ? ` En Cal.com dura ${calMinutes} min (la duración de tu evento).` : ''}`,
+      ),
+    );
+    await env.DB.batch(stmts);
+    return null;
+  } catch (e) {
+    await env.DB.prepare('DELETE FROM external_bookings WHERE external_id = ?').bind(pending).run();
+    const warning = `Se guardó en tu agenda, pero Cal.com no la aceptó (${(e as Error).message}). El horario sigue bloqueado en Cal.com por tu calendario.`;
+    await historyStmt(env, appt.id, '⚠️ No se agregó a Cal.com', warning).run();
     return warning;
   }
 }
@@ -185,6 +287,7 @@ export function fromCalcomApi(b: any, tz: string): ExternalBooking | null {
         .join('\n') || null,
     status: status === 'pending' || status === 'unconfirmed' ? 'scheduled' : 'confirmed',
     followup,
+    agenda_id: Number(md.astrobloomx_id) || null,
   };
 }
 

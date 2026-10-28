@@ -22,7 +22,7 @@ import {
   str,
   type Ctx,
 } from '../http';
-import { beforeDelete, externalSource, pushToCalcom } from '../calcom';
+import { beforeDelete, externalSource, linkedCalcomUid, pushCreateToCalcom, pushToCalcom } from '../calcom';
 import { reminderStatements } from '../reminders';
 import { loadSettings } from '../settings';
 
@@ -401,7 +401,8 @@ export async function createAppointment({ req, env }: Ctx) {
   const created = await env.DB.prepare('SELECT MAX(id) AS id FROM appointments').first<{ id: number }>();
   const appt = (await fetchAppointment(env, created!.id))!;
   await env.DB.batch(reminderStatements(env, appt, settings));
-  return json(appt, 201);
+  const sync_warning = await pushCreateToCalcom(env, appt, settings);
+  return json({ ...appt, sync_warning }, 201);
 }
 
 export async function updateAppointment({ req, env, params }: Ctx) {
@@ -556,6 +557,19 @@ export async function reschedule({ req, env, params }: Ctx) {
   await env.DB.batch(reminderStatements(env, appt, settings));
   const sync_warning = await pushToCalcom(env, id, { type: 'reschedule', start: start_at, reason: str(body.reason, 300) });
   return json({ ...appt, sync_warning });
+}
+
+/** Agrega a Cal.com una cita que ya existía en la agenda (por ejemplo, registrada antes de activar la opción). */
+export async function sendToCalcom({ env, params }: Ctx) {
+  const id = Number(params.id);
+  const appt = await fetchAppointment(env, id);
+  if (!appt) throw new HttpError(404, 'La cita no existe.');
+  if (await linkedCalcomUid(env, id)) throw new HttpError(409, 'Esta cita ya está en Cal.com.');
+  const settings = await loadSettings(env);
+  if (!settings.calcom_event_url) throw new HttpError(400, 'Primero escribe el enlace de tu evento en Configuración → Integraciones.');
+  const warning = await pushCreateToCalcom(env, appt, { ...settings, calcom_push_manual: true });
+  if (warning) throw new HttpError(422, warning);
+  return json(await fetchAppointment(env, id));
 }
 
 export async function deleteAppointment({ env, params }: Ctx) {

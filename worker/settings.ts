@@ -21,6 +21,9 @@ export const DEFAULT_SETTINGS: Settings = {
   week_starts_monday: true,
   calendar_start_hour: 7,
   calendar_end_hour: 23,
+  calcom_event_url: null,
+  calcom_push_manual: true,
+  calcom_attendee_email: null,
 };
 
 export async function loadSettings(env: Env): Promise<Settings> {
@@ -81,6 +84,27 @@ function sanitize(patch: Partial<Settings>): Partial<Settings> {
     out.calendar_start_hour = Math.min(23, Math.max(0, Math.round(Number(patch.calendar_start_hour))));
   if (patch.calendar_end_hour !== undefined)
     out.calendar_end_hour = Math.min(24, Math.max(1, Math.round(Number(patch.calendar_end_hour))));
+  if (patch.calcom_event_url !== undefined) {
+    const v = String(patch.calcom_event_url ?? '').trim();
+    if (!v) out.calcom_event_url = null;
+    else {
+      let u: URL;
+      try {
+        u = new URL(v);
+      } catch {
+        throw new HttpError(400, 'El enlace del evento de Cal.com no es válido.');
+      }
+      if (!/(^|\.)cal\.com$/.test(u.hostname) || u.pathname.split('/').filter(Boolean).length < 2)
+        throw new HttpError(400, 'Usa el enlace completo del evento, por ejemplo https://cal.com/tu-usuario/cita-astrobloomx');
+      out.calcom_event_url = `${u.origin}${u.pathname.replace(/\/$/, '')}`;
+    }
+  }
+  if (patch.calcom_push_manual !== undefined) out.calcom_push_manual = !!patch.calcom_push_manual;
+  if (patch.calcom_attendee_email !== undefined) {
+    const v = String(patch.calcom_attendee_email ?? '').trim();
+    if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new HttpError(400, 'Correo inválido.');
+    out.calcom_attendee_email = v || null;
+  }
   return out;
 }
 
