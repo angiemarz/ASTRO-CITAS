@@ -1,4 +1,5 @@
 // Reglas de negocio compartidas: etiquetas, cálculo de precios, estado de pago y enlaces de contacto.
+import { addDaysYmd } from './time';
 import type {
   AppointmentStatus,
   Currency,
@@ -212,4 +213,29 @@ export function clientContactFor(
   if (platform === 'instagram') return c.instagram ?? '';
   if (platform === 'messenger') return c.messenger ?? '';
   return '';
+}
+
+// ---------- Rituales ----------
+
+export const isRitualCategory = (c: string | null | undefined) => /ritual/i.test(c ?? '');
+
+/** Cita cuyos servicios son todos rituales: no ocupan una hora fija, así que no se envían a Cal.com ni bloquean horarios. */
+export const isRitualOnly = (a: { services: { category: string | null }[] }) =>
+  a.services.length > 0 && a.services.every((s) => isRitualCategory(s.category));
+
+/**
+ * Enlace "Agregar a Google Calendar" de un evento de día completo. Los eventos de día completo se crean como
+ * "Disponible", así que no bloquean horarios en Cal.com. No requiere conectar nada.
+ */
+export function googleCalendarDayLink(o: { title: string; ymd: string; details?: string; tz?: string }): string {
+  const d = (ymd: string) => ymd.replace(/-/g, '');
+  const q = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: o.title,
+    dates: `${d(o.ymd)}/${d(addDaysYmd(o.ymd, 1))}`,
+    trp: 'false',
+    ...(o.details ? { details: o.details } : {}),
+    ...(o.tz ? { ctz: o.tz } : {}),
+  });
+  return `https://calendar.google.com/calendar/render?${q.toString()}`;
 }

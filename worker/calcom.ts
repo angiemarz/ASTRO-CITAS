@@ -3,7 +3,7 @@
 //   (y Cal.com avisa a la clienta por correo).
 // - Cal.com → Agenda: cada 30 minutos se revisan las reservas para recuperar avisos (webhooks) perdidos.
 import { looksLikePhone, parseWhen, splitServices, applyBooking, ensureTable, type ExternalBooking } from './routes/hooks';
-import { normalizePhoneForWa } from '../shared/domain';
+import { isRitualOnly, normalizePhoneForWa } from '../shared/domain';
 import type { Appointment, Settings } from '../shared/types';
 import type { Env } from './env';
 import { nowIso } from './http';
@@ -263,6 +263,7 @@ export async function pushCreateToCalcom(env: Env, appt: Appointment, settings: 
   const event = parseEventUrl(settings.calcom_event_url);
   if (!event) return null;
   if (['cancelled', 'no_show', 'completed'].includes(appt.status)) return null;
+  if (isRitualOnly(appt)) return null; // los rituales no ocupan una hora: no se mandan a Cal.com
   if (new Date(appt.start_at).getTime() < Date.now()) return null;
 
   const email = attendeeEmail(settings.calcom_attendee_email || env.VAPID_SUBJECT, appt.id);

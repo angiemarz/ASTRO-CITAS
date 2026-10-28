@@ -685,7 +685,7 @@ function IntegrationsSection({ s, patch }: { s: Settings; patch: (p: Partial<Set
         <div className="space-y-3 rounded-2xl border border-lavender-200 p-4">
           <p className="font-bold text-plum-700">📅 Calendario de tu agenda (ICS)</p>
           <p className="text-sm text-plum-500">
-            Para que Cal.com no ofrezca horarios que ya ocupaste con citas registradas a mano. Incluye tus citas activas (no las que ya vienen de Cal.com).
+            Para que Cal.com no ofrezca horarios que ya ocupaste con citas registradas a mano. Incluye tus citas activas (no las que ya vienen de Cal.com ni los rituales, que no ocupan una hora fija).
           </p>
           <div className="flex gap-2">
             <Input readOnly value={d.ics_url.replace(/feed\/[^/]+/, 'feed/••••••')} />

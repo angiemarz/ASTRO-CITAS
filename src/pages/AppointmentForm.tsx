@@ -510,6 +510,12 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
                 </li>
               </ul>
             )}
+            {f.services.length > 0 && f.services.every((s) => /ritual/i.test(s.category ?? '')) && (
+              <p className="rounded-2xl bg-lavender-50 px-4 py-3 text-sm text-plum-600">
+                ✨ Los rituales no se envían a Cal.com ni bloquean horarios. Al guardar, en el detalle de la cita encontrarás el botón{' '}
+                <strong>Agregar a Google Calendar</strong>.
+              </p>
+            )}
             <Field
               label="Importe acordado (opcional)"
               hint="Modifica el precio solo para esta cita, sin cambiar tu catálogo."

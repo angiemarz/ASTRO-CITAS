@@ -1,4 +1,4 @@
-import { FINAL_STATUSES, paymentStatus, round2, STATUS_LABELS } from '../../shared/domain';
+import { FINAL_STATUSES, isRitualOnly, paymentStatus, round2, STATUS_LABELS } from '../../shared/domain';
 import { formatDateShort, formatTime, isValidTimeZone } from '../../shared/time';
 import type {
   Appointment,
@@ -564,6 +564,7 @@ export async function sendToCalcom({ env, params }: Ctx) {
   const id = Number(params.id);
   const appt = await fetchAppointment(env, id);
   if (!appt) throw new HttpError(404, 'La cita no existe.');
+  if (isRitualOnly(appt)) throw new HttpError(400, 'Los rituales no se agregan a Cal.com para no bloquear tus horarios. Usa "Agregar a Google Calendar".');
   if (await linkedCalcomUid(env, id)) throw new HttpError(409, 'Esta cita ya está en Cal.com.');
   const settings = await loadSettings(env);
   if (!settings.calcom_event_url) throw new HttpError(400, 'Primero escribe el enlace de tu evento en Configuración → Integraciones.');
