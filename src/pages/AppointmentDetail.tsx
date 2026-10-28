@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { formatDuration, formatMoney, PLATFORM_LABELS } from '../../shared/domain';
+import { formatDuration, formatMoney, googleCalendarDayLink, isRitualOnly, PLATFORM_LABELS } from '../../shared/domain';
 import { relativeTime } from '../../shared/time';
 import { useActions } from '../components/ActionsProvider';
 import { ActionMenu } from '../components/AppointmentCard';
@@ -161,10 +161,32 @@ export function AppointmentDetailPage() {
                 </Button>
               </div>
             )}
-            {open && !a.external_source && settings.calcom_event_url && new Date(a.start_at).getTime() > Date.now() && (
+            {open && !a.external_source && !isRitualOnly(a) && settings.calcom_event_url && new Date(a.start_at).getTime() > Date.now() && (
               <Button variant="gold" size="sm" className="mt-3 w-full" loading={sending} icon={<CalendarPlus className="size-4" />} onClick={sendToCalcom}>
                 Agregar a Cal.com y Google Calendar
               </Button>
+            )}
+            {isRitualOnly(a) && open && (
+              <div className="mt-3 space-y-2 rounded-2xl bg-lavender-50 p-3">
+                <a
+                  href={googleCalendarDayLink({
+                    title: `✨ ${a.services.map((s) => s.name).join(' + ')} · ${a.client_name}`,
+                    ymd: fmt.ymd(a.start_at),
+                    tz: fmt.tz,
+                    details: [`Ritual para ${a.client_name}`, a.contact_value && `Contacto: ${a.contact_value}`, `Cooperación: ${formatMoney(a.final_price, a.currency)}`, a.notes]
+                      .filter(Boolean)
+                      .join('\n'),
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex min-h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-5 font-bold text-plum-900"
+                >
+                  <CalendarPlus className="size-4" /> Agregar a Google Calendar
+                </a>
+                <p className="text-xs text-plum-500">
+                  Los rituales no ocupan una hora fija: se agregan como evento de día completo, que no bloquea tus horarios de Cal.com.
+                </p>
+              </div>
             )}
             {a.attended_at && (
               <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800">

@@ -65,7 +65,7 @@ export async function icsFeed({ env, params, url }: Ctx) {
   } catch {
     hasLinks = false;
   }
-  // Por defecto se omiten las citas que vinieron de Cal.com: Cal.com y Google Calendar ya las tienen.
+  // Por defecto se omiten las citas que vinieron de Cal.com (Cal.com y Google Calendar ya las tienen) y los rituales (no ocupan una hora fija).
   const excludeCalcom = !includeAll && hasLinks
     ? "AND NOT EXISTS (SELECT 1 FROM external_bookings e WHERE e.appointment_id = a.id AND e.source = 'calcom')"
     : '';
@@ -74,6 +74,8 @@ export async function icsFeed({ env, params, url }: Ctx) {
        (SELECT group_concat(name, ' + ') FROM appointment_services s WHERE s.appointment_id = a.id) AS services
      FROM appointments a
      WHERE a.status NOT IN ('cancelled','no_show') AND a.end_at > ? AND a.start_at < ? ${excludeCalcom}
+       AND NOT (EXISTS (SELECT 1 FROM appointment_services r WHERE r.appointment_id = a.id)
+                AND NOT EXISTS (SELECT 1 FROM appointment_services r WHERE r.appointment_id = a.id AND (r.category IS NULL OR r.category NOT LIKE '%itual%')))
      ORDER BY a.start_at LIMIT 2000`,
   )
     .bind(new Date(Date.now() - 30 * 86400_000).toISOString(), new Date(Date.now() + 365 * 86400_000).toISOString())

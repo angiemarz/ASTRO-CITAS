@@ -52,3 +52,22 @@ describe('enlaces de contacto', () => {
     expect(contactLink('video', 'no es enlace')).toBeNull();
   });
 });
+
+import { googleCalendarDayLink, isRitualOnly } from '../shared/domain';
+
+describe('rituales', () => {
+  it('solo cuentan si todos los servicios son rituales', () => {
+    expect(isRitualOnly({ services: [{ category: 'Rituales ✨' }] })).toBe(true);
+    expect(isRitualOnly({ services: [{ category: 'Rituales ✨' }, { category: 'Tarot' }] })).toBe(false);
+    expect(isRitualOnly({ services: [{ category: null }] })).toBe(false);
+    expect(isRitualOnly({ services: [] })).toBe(false);
+  });
+  it('enlace de Google Calendar de día completo (el día siguiente como fin) y sin bloquear horario', () => {
+    const url = new URL(googleCalendarDayLink({ title: '✨ Abrecaminos · Ana', ymd: '2026-12-31', tz: 'America/Monterrey', details: 'Cooperación: $180' }));
+    expect(url.origin + url.pathname).toBe('https://calendar.google.com/calendar/render');
+    expect(url.searchParams.get('action')).toBe('TEMPLATE');
+    expect(url.searchParams.get('dates')).toBe('20261231/20270101');
+    expect(url.searchParams.get('trp')).toBe('false');
+    expect(url.searchParams.get('text')).toBe('✨ Abrecaminos · Ana');
+  });
+});
