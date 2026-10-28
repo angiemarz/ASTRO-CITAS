@@ -179,3 +179,39 @@ describe('crear en Cal.com las citas de la agenda', () => {
     expect(attendeeEmail('', 3)).toBeNull();
   });
 });
+
+import { bookingLocation, fillRequiredFields } from '../worker/calcom';
+
+describe('campos obligatorios del formulario del evento en Cal.com', () => {
+  const data = { phone: '+523164536761', contact: '+523164536761', notes: 'Servicios: Lectura "Todo el mazo"', name: 'Miriam', services: 'Lectura "Todo el mazo"' };
+  it('llena "Contacto" y no toca los campos del sistema', () => {
+    const r = fillRequiredFields(
+      [
+        { type: 'name', slug: 'name', required: true },
+        { type: 'email', slug: 'email', required: true },
+        { type: 'text', slug: 'contacto', label: 'Contacto', required: true },
+        { type: 'textarea', slug: 'notes', required: false },
+        { type: 'text', slug: 'secreto', label: 'Oculto', required: true, hidden: true },
+      ],
+      data,
+    );
+    expect(r).toEqual({ contacto: '+523164536761' });
+  });
+  it('select toma la primera opción; checkbox sí/no no se inventa; texto genérico usa las notas', () => {
+    const r = fillRequiredFields(
+      [
+        { type: 'select', slug: 'tipo', required: true, options: [{ value: 'tarot', label: 'Tarot' }, { value: 'astro' }] },
+        { type: 'text', slug: 'comentarios', label: 'Comentarios', required: true },
+        { type: 'phone', slug: 'whats', required: true },
+      ],
+      data,
+    );
+    expect(r).toEqual({ tipo: 'tarot', comentarios: data.notes, whats: data.phone });
+  });
+  it('la ubicación solo se envía si el evento la admite', () => {
+    expect(bookingLocation([{ type: 'attendeePhone' }], '+523164536761', null)).toEqual({ location: { type: 'attendeePhone', phone: '+523164536761' } });
+    expect(bookingLocation([{ type: 'attendeeDefined' }], null, 'WhatsApp 316')).toEqual({ location: { type: 'attendeeDefined', location: 'WhatsApp 316' } });
+    expect(bookingLocation([{ type: 'integration' }], '+523164536761', null)).toEqual({});
+    expect(bookingLocation([], '+523164536761', null)).toEqual({});
+  });
+});
