@@ -604,7 +604,7 @@ function IntegrationsSection({ s, patch }: { s: Settings; patch: (p: Partial<Set
         base: string;
         ics_url: string | null;
         calcom_api: boolean;
-        calcom_last_sync: { at: string; checked: number; changed: number; received?: number; error: string | null } | null;
+        calcom_last_sync: { at: string; checked: number; changed: number; received?: number; error: string | null; debug?: string[] } | null;
       }>('/integrations'),
   });
   const [syncing, setSyncing] = useState(false);
@@ -613,7 +613,7 @@ function IntegrationsSection({ s, patch }: { s: Settings; patch: (p: Partial<Set
     try {
       const r = await post<{ checked: number; changed: number; received: number; error?: string }>('/integrations/calcom/sync');
       if (r.error) toast(r.error, 'error');
-      else if (!r.received) toast('Cal.com no devolvió reservas próximas con esta llave de API. Revisa que la llave sea de la misma cuenta donde está tu evento.', 'info');
+      else if (!r.received) toast('Cal.com respondió bien, pero sin reservas próximas. Si en Cal.com → Reservas sí ves alguna, abre "Ver qué respondió Cal.com" y mándame captura.', 'info');
       else toast(r.changed ? `Sincronizado: ${r.changed} cambio(s) recuperado(s)` : `Todo al día (${r.checked} reserva(s) revisadas)`);
       info.refetch();
     } catch (e) {
@@ -724,6 +724,16 @@ function IntegrationsSection({ s, patch }: { s: Settings; patch: (p: Partial<Set
                 <p className="text-xs text-plum-400">
                   Última revisión: {new Date(d.calcom_last_sync.at).toLocaleString('es-MX')} · {d.calcom_last_sync.received ?? d.calcom_last_sync.checked} reserva(s) en Cal.com
                   {d.calcom_last_sync.error ? ` · ⚠️ ${d.calcom_last_sync.error}` : ''}
+                  {!!d.calcom_last_sync.debug?.length && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer font-bold">Ver qué respondió Cal.com</summary>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                        {d.calcom_last_sync.debug.map((l, i) => (
+                          <li key={i}>{l}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </p>
               )}
               <Button size="sm" variant="secondary" loading={syncing} onClick={syncNow}>

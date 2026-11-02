@@ -419,25 +419,32 @@ export function bookingList(res: any): any[] {
 export async function reconcileCalcom(
   env: Env,
   exec: ExecutionContext,
-): Promise<{ checked: number; changed: number; received: number; error?: string }> {
+): Promise<{ checked: number; changed: number; received: number; error?: string; debug?: string[] }> {
   if (!calcomConfigured(env)) return { checked: 0, changed: 0, received: 0 };
   const settings = await loadSettings(env);
   let checked = 0;
   let changed = 0;
   let received = 0;
+  const debug: string[] = [];
   let error: string | undefined;
   try {
     const since = new Date(Date.now() - 24 * 3600_000).toISOString();
     // Se piden por estado y también sin filtro, y se aceptan las distintas formas de respuesta de la API.
     const byUid = new Map<string, any>();
-    for (const query of [
-      `/bookings?status=upcoming,unconfirmed,cancelled&afterStart=${encodeURIComponent(since)}&take=100&sortStart=asc`,
-      `/bookings?afterStart=${encodeURIComponent(since)}&take=100`,
+    for (const [label, query] of [
+      ['con estados', `/bookings?status=upcoming,unconfirmed,cancelled&afterStart=${encodeURIComponent(since)}&take=100&sortStart=asc`],
+      ['sin filtro de estado', `/bookings?afterStart=${encodeURIComponent(since)}&take=100`],
+      ['próximas', `/bookings?status=upcoming&take=100`],
     ]) {
       try {
-        for (const raw of bookingList(await calApi(env, query))) if (raw?.uid) byUid.set(String(raw.uid), raw);
+        const res = await calApi<any>(env, query);
+        const list = bookingList(res);
+        for (const raw of list) if (raw?.uid) byUid.set(String(raw.uid), raw);
+        // Qué respondió Cal.com (sin datos personales): para diagnosticar un "0 reservas".
+        debug.push(`${label}: respondió ${list.length} reserva(s) · status=${res?.status ?? '?'} · campos=${Object.keys(res ?? {}).join(',') || 'ninguno'}`);
       } catch (e) {
         error ??= (e as Error).message;
+        debug.push(`${label}: error · ${(e as Error).message}`);
       }
     }
     received = byUid.size;
@@ -456,7 +463,7 @@ export async function reconcileCalcom(
   await env.DB.prepare(
     "INSERT INTO settings (key, value) VALUES ('calcom_last_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   )
-    .bind(JSON.stringify({ at: nowIso(), checked, changed, received, error: error ?? null }))
+    .bind(JSON.stringify({ at: nowIso(), checked, changed, received, error: error ?? null, debug }))
     .run();
-  return { checked, changed, received, error };
+  return { checked, changed, received, error, debug };
 }
