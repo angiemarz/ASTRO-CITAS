@@ -1,4 +1,4 @@
-import { FINAL_STATUSES, isRitualOnly, paymentStatus, round2, STATUS_LABELS } from '../../shared/domain';
+import { FINAL_STATUSES, hasRitual, isRitualOnly, paymentStatus, round2, STATUS_LABELS } from '../../shared/domain';
 import { formatDateShort, formatTime, isValidTimeZone } from '../../shared/time';
 import type {
   Appointment,
@@ -39,12 +39,19 @@ export const APPT_SELECT = `
        FROM appointment_services s WHERE s.appointment_id = a.id) AS services_json,
     (SELECT json_group_array(json_object('id', pr.id, 'promotion_id', pr.promotion_id, 'name', pr.name,
         'original_price', pr.original_price, 'special_price', pr.special_price, 'savings', pr.savings))
-       FROM appointment_promotions pr WHERE pr.appointment_id = a.id) AS promotions_json
+       FROM appointment_promotions pr WHERE pr.appointment_id = a.id) AS promotions_json,
+    (SELECT topic FROM ritual_details r WHERE r.appointment_id = a.id) AS ritual_topic,
+    COALESCE((SELECT evidence_sent FROM ritual_details r WHERE r.appointment_id = a.id), 0) AS ritual_evidence,
+    (SELECT evidence_at FROM ritual_details r WHERE r.appointment_id = a.id) AS ritual_evidence_at,
+    COALESCE((SELECT explanation_sent FROM ritual_details r WHERE r.appointment_id = a.id), 0) AS ritual_explanation,
+    (SELECT explanation_at FROM ritual_details r WHERE r.appointment_id = a.id) AS ritual_explanation_at
   FROM appointments a`;
 
-type Row = Omit<Appointment, 'services' | 'promotions' | 'balance' | 'payment_status'> & {
+type Row = Omit<Appointment, 'services' | 'promotions' | 'balance' | 'payment_status' | 'ritual_evidence' | 'ritual_explanation'> & {
   services_json: string | null;
   promotions_json: string | null;
+  ritual_evidence: number;
+  ritual_explanation: number;
 };
 
 export function mapAppointment(r: Row): Appointment {
@@ -54,6 +61,8 @@ export function mapAppointment(r: Row): Appointment {
   const promotions = promotions_json ? JSON.parse(promotions_json) : [];
   return {
     ...rest,
+    ritual_evidence: !!r.ritual_evidence,
+    ritual_explanation: !!r.ritual_explanation,
     paid_total: paid,
     balance: round2(Math.max(0, r.final_price - paid)),
     payment_status: paymentStatus(r.final_price, paid),
@@ -120,6 +129,7 @@ interface CleanInput {
   services: AppointmentInput['services'];
   promotions: AppointmentInput['promotions'];
   initial_payment: AppointmentInput['initial_payment'];
+  ritual_topic: string | null;
   allow_overlap: boolean;
 }
 
@@ -192,6 +202,7 @@ function validate(body: AppointmentInput): CleanInput {
     services,
     promotions,
     initial_payment,
+    ritual_topic: str(body.ritual_topic, 300),
     allow_overlap: !!body.allow_overlap,
   };
 }
@@ -389,6 +400,14 @@ export async function createAppointment({ req, env }: Ctx) {
     ...childStatements(env, 'last', input),
     historyStmt(env, 'last', 'Cita creada', STATUS_LABELS[input.status]),
   ];
+  if (hasRitual({ services: input.services }) && input.ritual_topic) {
+    stmts.push(
+      env.DB.prepare('INSERT INTO ritual_details (appointment_id, topic, updated_at) VALUES ((SELECT MAX(id) FROM appointments), ?, ?)').bind(
+        input.ritual_topic,
+        now,
+      ),
+    );
+  }
   if (input.initial_payment) {
     const p = input.initial_payment;
     stmts.push(
@@ -464,6 +483,12 @@ export async function updateAppointment({ req, env, params }: Ctx) {
     env.DB.prepare('DELETE FROM appointment_promotions WHERE appointment_id = ?').bind(id),
     ...childStatements(env, id, input),
     historyStmt(env, id, 'Cita editada', changes.join(' · ') || null),
+    hasRitual({ services: input.services })
+      ? env.DB.prepare(
+          `INSERT INTO ritual_details (appointment_id, topic, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(appointment_id) DO UPDATE SET topic = excluded.topic, updated_at = excluded.updated_at`,
+        ).bind(id, input.ritual_topic, now)
+      : env.DB.prepare('DELETE FROM ritual_details WHERE appointment_id = ?').bind(id),
   ];
   if (input.initial_payment) {
     const p = input.initial_payment;
@@ -570,6 +595,38 @@ export async function sendToCalcom({ env, params }: Ctx) {
   if (!settings.calcom_event_url) throw new HttpError(400, 'Primero escribe el enlace de tu evento en Configuración → Integraciones.');
   const warning = await pushCreateToCalcom(env, appt, { ...settings, calcom_push_manual: true });
   if (warning) throw new HttpError(422, warning);
+  return json(await fetchAppointment(env, id));
+}
+
+/** Seguimiento de un ritual: tema, ¿ya mandé la evidencia? y ¿ya mandé la explicación? */
+export async function setRitual({ req, env, params }: Ctx) {
+  const id = Number(params.id);
+  const appt = await fetchAppointment(env, id);
+  if (!appt) throw new HttpError(404, 'La cita no existe.');
+  if (!hasRitual(appt)) throw new HttpError(400, 'Esta cita no incluye un ritual.');
+  const body = await readJson<{ topic?: string | null; evidence?: boolean; explanation?: boolean }>(req);
+  const now = nowIso();
+  const stmts: D1PreparedStatement[] = [
+    env.DB.prepare('INSERT OR IGNORE INTO ritual_details (appointment_id, updated_at) VALUES (?, ?)').bind(id, now),
+  ];
+  if (body.topic !== undefined) {
+    stmts.push(env.DB.prepare('UPDATE ritual_details SET topic = ?, updated_at = ? WHERE appointment_id = ?').bind(str(body.topic, 300), now, id));
+  }
+  const flags: [keyof typeof body, string, string][] = [
+    ['evidence', 'evidence', 'Evidencia'],
+    ['explanation', 'explanation', 'Explicación'],
+  ];
+  for (const [key, col, label] of flags) {
+    const v = body[key];
+    if (v === undefined) continue;
+    const sent = v ? 1 : 0;
+    const was = col === 'evidence' ? appt.ritual_evidence : appt.ritual_explanation;
+    stmts.push(
+      env.DB.prepare(`UPDATE ritual_details SET ${col}_sent = ?, ${col}_at = ?, updated_at = ? WHERE appointment_id = ?`).bind(sent, sent ? now : null, now, id),
+    );
+    if (was !== !!sent) stmts.push(historyStmt(env, id, `${label} ${sent ? 'enviada' : 'marcada como no enviada'}`, null));
+  }
+  await env.DB.batch(stmts);
   return json(await fetchAppointment(env, id));
 }
 

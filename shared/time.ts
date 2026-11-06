@@ -96,6 +96,15 @@ export function addDaysYmd(ymd: string, days: number): string {
   return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
 }
 
+/** Días de calendario entre dos fechas AAAA-MM-DD (b − a). */
+export function diffDaysYmd(a: string, b: string): number {
+  const t = (ymd: string) => {
+    const [y, m, d] = ymd.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((t(b) - t(a)) / 86400_000);
+}
+
 export function todayYmd(tz: string): string {
   return toYmd(new Date(), tz);
 }

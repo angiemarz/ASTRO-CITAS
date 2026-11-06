@@ -1,5 +1,5 @@
 // Reglas de negocio compartidas: etiquetas, cálculo de precios, estado de pago y enlaces de contacto.
-import { addDaysYmd } from './time';
+import { addDaysYmd, diffDaysYmd, toYmd, zonedToUtc } from './time';
 import type {
   AppointmentStatus,
   Currency,
@@ -238,4 +238,39 @@ export function googleCalendarDayLink(o: { title: string; ymd: string; details?:
     ...(o.tz ? { ctz: o.tz } : {}),
   });
   return `https://calendar.google.com/calendar/render?${q.toString()}`;
+}
+
+/** Algún servicio de la cita es un ritual (aunque haya otros). */
+export const hasRitual = (a: { services: { category: string | null }[] }) => a.services.some((s) => isRitualCategory(s.category));
+
+/** Plazo para realizar un ritual: una semana y dos días a partir de la fecha de la cita. */
+export const RITUAL_WINDOW_DAYS = 9;
+
+export interface RitualDeadline {
+  /** Último día para realizarlo (AAAA-MM-DD, zona horaria de la agenda). */
+  deadlineYmd: string;
+  /** Días que faltan (0 = vence hoy, negativo = ya venció). */
+  daysLeft: number;
+  /** Venció sin realizarse. */
+  overdue: boolean;
+  /** Instante en que vence (fin del último día). */
+  deadlineMs: number;
+}
+
+export function ritualDeadline(startAt: string, tz: string, now: Date | number = new Date()): RitualDeadline {
+  const date = toYmd(startAt, tz);
+  const deadlineYmd = addDaysYmd(date, RITUAL_WINDOW_DAYS);
+  const deadlineMs = zonedToUtc(addDaysYmd(deadlineYmd, 1), '00:00', tz).getTime();
+  const nowMs = typeof now === 'number' ? now : now.getTime();
+  return { deadlineYmd, daysLeft: diffDaysYmd(toYmd(nowMs, tz), deadlineYmd), overdue: nowMs >= deadlineMs, deadlineMs };
+}
+
+export function ritualCountdownLabel(r: RitualDeadline): string {
+  if (r.overdue) {
+    const d = Math.abs(r.daysLeft);
+    return d <= 1 ? 'Venció ayer' : `Venció hace ${d} días`;
+  }
+  if (r.daysLeft === 0) return 'Vence hoy';
+  if (r.daysLeft === 1) return 'Falta 1 día';
+  return `Faltan ${r.daysLeft} días`;
 }

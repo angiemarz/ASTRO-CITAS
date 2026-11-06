@@ -131,6 +131,12 @@ export interface Appointment {
   payments?: Payment[];
   history?: HistoryEntry[];
   client?: Client | null;
+  /** Rituales: tema o intención, y seguimiento de lo que se envió a la clienta. */
+  ritual_topic: string | null;
+  ritual_evidence: boolean;
+  ritual_explanation: boolean;
+  ritual_evidence_at: string | null;
+  ritual_explanation_at: string | null;
   /** Origen externo ("calcom", "canva"…) si la cita llegó por una integración. */
   external_source?: string | null;
   /** Aviso cuando un cambio no se pudo reflejar en Cal.com. */
@@ -162,6 +168,8 @@ export interface AppointmentInput {
   services: AppointmentService[];
   promotions: AppointmentPromotion[];
   initial_payment?: { amount: number; method: string; paid_at: string; note?: string | null } | null;
+  /** Tema o intención del ritual (solo se guarda si la cita incluye un ritual). */
+  ritual_topic?: string | null;
   allow_overlap?: boolean;
 }
 

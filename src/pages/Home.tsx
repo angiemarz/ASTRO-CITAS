@@ -259,6 +259,7 @@ function Action({
 }
 
 function TodayAgenda({ items, now }: { items: Appointment[]; now: number }) {
+  const { tz } = useFmt();
   if (!items.length) {
     return (
       <div className="card">
@@ -272,18 +273,18 @@ function TodayAgenda({ items, now }: { items: Appointment[]; now: number }) {
     {
       key: 'current',
       title: 'En curso',
-      items: items.filter((a) => a.status === 'in_progress' || (['scheduled', 'confirmed'].includes(a.status) && timePhase(a, now) === 'current')),
+      items: items.filter((a) => a.status === 'in_progress' || (['scheduled', 'confirmed'].includes(a.status) && timePhase(a, tz, now) === 'current')),
       highlight: 'current',
     },
     {
       key: 'upcoming',
       title: 'Próximas',
-      items: items.filter((a) => ['scheduled', 'confirmed'].includes(a.status) && timePhase(a, now) === 'upcoming'),
+      items: items.filter((a) => ['scheduled', 'confirmed'].includes(a.status) && timePhase(a, tz, now) === 'upcoming'),
     },
     {
       key: 'pending',
       title: 'Pendientes de atender',
-      items: items.filter((a) => ['scheduled', 'confirmed'].includes(a.status) && timePhase(a, now) === 'past'),
+      items: items.filter((a) => ['scheduled', 'confirmed'].includes(a.status) && timePhase(a, tz, now) === 'past'),
       highlight: 'overdue',
     },
     { key: 'done', title: 'Completadas', items: items.filter((a) => a.status === 'completed') },
