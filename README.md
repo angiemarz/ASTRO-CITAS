@@ -165,6 +165,14 @@ La agenda lee `servicios` (separados por `|`), `total`, `descuento`, `ubicacion`
 | Alguien edita el enlace y baja el total | Si el total es menor al de tu catálogo (considerando el 5% por 3 o más servicios), se registra el del catálogo y queda la advertencia en el historial. |
 | Borras una cita que vino de Cal.com y la sincronización la recrea | Las citas borradas se recuerdan y no se vuelven a crear. |
 
+## 🕯️ Rituales
+
+- Las citas de **solo rituales** no ocupan una hora fija: no se mandan a Cal.com ni bloquean horarios, y tienen el botón **Agregar a Google Calendar** (evento de día completo).
+- **Tema o intención:** al registrar un ritual puedes escribir su tema (en *Abrecaminos específico* es obligatorio).
+- **Plazo:** cada ritual tiene **una semana y dos días** desde la fecha de su cita para realizarse. El contador está en verde, pasa a ámbar los últimos 2 días y a **rojo** cuando vence. Se marca como realizado con **Atendida**. Los rituales pendientes están en *Pendientes de atender → Rituales*, y al vencer el plazo llega un aviso push.
+- **Seguimiento:** en las citas con ritual (en el detalle y en el menú ⋯) aparecen los botones **¿Mandé la evidencia? Sí/No** y **¿Mandé la explicación? Sí/No**.
+- *Abrecaminos específico* ($230 de aportación mínima) se agrega solo al catálogo la primera vez; si lo eliminas, no vuelve a aparecer. Las tablas de seguimiento también se crean solas.
+
 ## 🎨 Usar tu logotipo original
 
 - **Dentro de la app:** *Configuración → Mi marca → Subir mi logotipo* (se guarda en tu base de datos).

@@ -134,3 +134,13 @@ export function useDeletePayment() {
   const invalidate = useInvalidateAppointments();
   return useMutation({ mutationFn: (id: number) => del(`/payments/${id}`), onSuccess: () => invalidate() });
 }
+
+/** Tema del ritual y seguimiento: ¿ya mandé la evidencia? ¿ya mandé la explicación? */
+export function useSetRitual() {
+  const invalidate = useInvalidateAppointments();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: number; topic?: string | null; evidence?: boolean; explanation?: boolean }) =>
+      put<Appointment>(`/appointments/${id}/ritual`, body),
+    onSuccess: () => invalidate(),
+  });
+}

@@ -19,6 +19,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   clientContactFor,
+  hasRitual,
+  isRitualOnly,
   computePromo,
   contactLink,
   describePromo,
@@ -100,6 +102,7 @@ interface FormState {
   currency: Currency;
   status: AppointmentStatus;
   notes: string;
+  ritualTopic: string;
   payAmount: string;
   payMethod: string;
   payDate: string;
@@ -156,6 +159,7 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
         currency: existing.currency,
         status: existing.status,
         notes: existing.notes ?? '',
+        ritualTopic: existing.ritual_topic ?? '',
         payAmount: '',
         payMethod: settings.payment_methods[0] ?? 'Transferencia',
         payDate: fmt.today(),
@@ -180,6 +184,7 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
       currency: settings.default_currency,
       status: 'scheduled',
       notes: '',
+      ritualTopic: '',
       payAmount: '',
       payMethod: settings.payment_methods[0] ?? 'Transferencia',
       payDate: fmt.today(),
@@ -287,6 +292,13 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
     setF((s) => ({ ...s, platform: p, contact: s.contactTouched && s.contact ? s.contact : clientContactFor(p, s.client) || '' }));
 
   // ---------- Guardar ----------
+  // Rituales: tema de la clienta y aportación mínima (el precio del catálogo de cada ritual)
+  const ritualLines = f.services.filter((s) => /ritual/i.test(s.category ?? ''));
+  const showRitual = hasRitual({ services: f.services });
+  const needsTopic = ritualLines.some((s) => /espec[ií]fic/i.test(s.name));
+  const ritualMin = round2(ritualLines.reduce((sum, s) => sum + (Number(s.price) || 0), 0));
+  const belowMin = isRitualOnly({ services: f.services }) && f.agreedAmount !== '' && original < ritualMin;
+
   const validate = () => {
     const e: Record<string, string> = {};
     if (!f.client.full_name.trim()) e.client = 'Escribe el nombre completo del cliente.';
@@ -295,6 +307,7 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
     if (!(f.duration > 0)) e.duration = 'La duración debe ser mayor a 0.';
     if (f.agreedAmount !== '' && !(Number(f.agreedAmount) >= 0)) e.price = 'Importe inválido.';
     if (newPay < 0) e.pay = 'Monto inválido.';
+    if (needsTopic && !f.ritualTopic.trim()) e.topic = 'Escribe el tema del ritual.';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -330,6 +343,7 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
             paid_at: (f.payDate === fmt.today() ? new Date() : fmt.toUtc(f.payDate, '12:00')).toISOString(),
           }
         : null,
+    ritual_topic: showRitual ? f.ritualTopic.trim() || null : null,
     allow_overlap: allowOverlap,
   });
 
@@ -510,11 +524,35 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
                 </li>
               </ul>
             )}
-            {f.services.length > 0 && f.services.every((s) => /ritual/i.test(s.category ?? '')) && (
-              <p className="rounded-2xl bg-lavender-50 px-4 py-3 text-sm text-plum-600">
-                ✨ Los rituales no se envían a Cal.com ni bloquean horarios. Al guardar, en el detalle de la cita encontrarás el botón{' '}
-                <strong>Agregar a Google Calendar</strong>.
-              </p>
+            {showRitual && (
+              <div className="space-y-3 rounded-2xl border border-gold-300 bg-gold-300/15 p-4">
+                <Field
+                  label="Tema o intención del ritual"
+                  required={needsTopic}
+                  error={errors.topic}
+                  hint={needsTopic ? 'Es lo que la clienta quiere trabajar en este ritual.' : 'Opcional.'}
+                >
+                  <Input
+                    value={f.ritualTopic}
+                    onChange={(e) => set('ritualTopic', e.target.value)}
+                    placeholder="Ej. abrir caminos en el trabajo"
+                  />
+                </Field>
+                {ritualMin > 0 && (
+                  <p className="text-sm text-plum-600">
+                    Aportación mínima: <strong>{formatMoney(ritualMin, f.currency)}</strong>. Puedes poner un importe acordado mayor.
+                  </p>
+                )}
+                {belowMin && (
+                  <p className="rounded-xl bg-blush-100 px-3 py-2 text-sm font-bold text-rose-700">
+                    ⚠️ El importe acordado ({formatMoney(original, f.currency)}) es menor a la aportación mínima.
+                  </p>
+                )}
+                <p className="text-sm text-plum-600">
+                  ✨ Los rituales no se envían a Cal.com ni bloquean horarios. Cuentan con <strong>una semana y dos días</strong> desde su fecha para
+                  realizarse; al guardar, verás el contador y los botones de evidencia y explicación en el detalle de la cita.
+                </p>
+              </div>
             )}
             <Field
               label="Importe acordado (opcional)"

@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarCheck, CheckCircle2, Hourglass, PlayCircle, Sun } from 'lucide-react';
+import { AlertTriangle, CalendarCheck, CheckCircle2, Flame, Hourglass, PlayCircle, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppointmentCard } from '../components/AppointmentCard';
@@ -8,13 +8,14 @@ import { useAppointments } from '../lib/hooks';
 import { classifyPending } from '../lib/pending';
 import { useSettings } from '../lib/settings';
 
-type Tab = 'overdue' | 'today' | 'in_progress' | 'upcoming' | 'completed';
+type Tab = 'overdue' | 'today' | 'in_progress' | 'upcoming' | 'rituals' | 'completed';
 
 const EMPTY: Record<Tab, { title: string; text: string; icon: React.ReactNode }> = {
   overdue: { title: '¡Todo al día!', text: 'No tienes citas atrasadas sin marcar.', icon: <CheckCircle2 className="size-7" /> },
   today: { title: 'Nada pendiente hoy', text: 'Todas las citas de hoy ya fueron atendidas o no hay citas.', icon: <Sun className="size-7" /> },
   in_progress: { title: 'Sin citas en curso', text: 'Usa “Iniciar” en una cita para verla aquí.', icon: <PlayCircle className="size-7" /> },
   upcoming: { title: 'Sin próximas citas', text: 'Las citas futuras agendadas o confirmadas aparecerán aquí.', icon: <CalendarCheck className="size-7" /> },
+  rituals: { title: 'Sin rituales por realizar', text: 'Los rituales pendientes aparecen aquí con su contador de una semana y dos días.', icon: <Flame className="size-7" /> },
   completed: { title: 'Aún no hay citas atendidas', text: 'Cuando marques una cita como atendida aparecerá en este historial.', icon: <Hourglass className="size-7" /> },
 };
 
@@ -31,7 +32,7 @@ export function PendingPage() {
 
   const groups = classifyPending(open.data?.items ?? [], timezone);
   const urlTab = params.get('tab') as Tab | null;
-  const defaultTab: Tab = groups.overdue.length ? 'overdue' : groups.today.length ? 'today' : 'upcoming';
+  const defaultTab: Tab = groups.overdue.length ? 'overdue' : groups.today.length ? 'today' : groups.upcoming.length ? 'upcoming' : groups.rituals.length ? 'rituals' : 'upcoming';
   const tab: Tab = urlTab ?? defaultTab;
   const setTab = (t: Tab) => setParams({ tab: t }, { replace: true });
 
@@ -40,6 +41,7 @@ export function PendingPage() {
     today: groups.today,
     in_progress: groups.in_progress,
     upcoming: groups.upcoming,
+    rituals: groups.rituals,
     completed: done.data?.items ?? [],
   };
   const items = lists[tab];
@@ -55,6 +57,7 @@ export function PendingPage() {
             { value: 'today', label: 'Hoy', count: groups.today.length },
             { value: 'in_progress', label: 'En curso', count: groups.in_progress.length },
             { value: 'upcoming', label: 'Próximas', count: groups.upcoming.length },
+            { value: 'rituals', label: 'Rituales', count: groups.rituals.length },
             { value: 'completed', label: 'Completadas' },
           ]}
         />
@@ -64,8 +67,17 @@ export function PendingPage() {
           <div className="mb-4 flex gap-3 rounded-2xl border border-blush-200 bg-blush-50 p-4 text-sm text-rose-700">
             <AlertTriangle className="size-5 shrink-0" />
             <p>
-              Estas citas ya terminaron pero siguen sin marcarse. Indica si las atendiste, si no asistió la persona o si se canceló. Nada se marca
+              Estas citas ya terminaron (o, en los rituales, venció su plazo) pero siguen sin marcarse. Indica si las atendiste, si no asistió la persona o si se canceló. Nada se marca
               automáticamente.
+            </p>
+          </div>
+        )}
+        {tab === 'rituals' && groups.rituals.length > 0 && (
+          <div className="mb-4 flex gap-3 rounded-2xl border border-gold-300 bg-gold-300/20 p-4 text-sm text-plum-700">
+            <Flame className="size-5 shrink-0 text-gold-600" />
+            <p>
+              Cada ritual tiene <strong>una semana y dos días</strong> a partir de la fecha de su cita para realizarse. El contador pasa a ámbar los últimos
+              2 días y a <strong className="text-rose-600">rojo</strong> cuando vence. Márcalo como <strong>Atendida</strong> al realizarlo.
             </p>
           </div>
         )}

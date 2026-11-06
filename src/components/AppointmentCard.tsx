@@ -14,13 +14,14 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { formatMoney, PLATFORM_LABELS } from '../../shared/domain';
+import { formatMoney, hasRitual, isRitualOnly, PLATFORM_LABELS } from '../../shared/domain';
 import { relativeTime } from '../../shared/time';
 import type { Appointment } from '../../shared/types';
 import { isOpen, isOverdue } from '../lib/pending';
 import { useFmt } from '../lib/settings';
 import { useActions } from './ActionsProvider';
 import { PlatformIcon } from './PlatformIcon';
+import { RitualChip, RitualFollowup, RitualPendingChips } from './RitualPanel';
 import { cx, PaymentBadge, Sheet, STATUS_COLOR, StatusBadge } from './ui';
 
 export function serviceNames(a: Appointment) {
@@ -43,7 +44,8 @@ export function AppointmentCard({
   const actions = useActions();
   const [menu, setMenu] = useState(false);
   const open = isOpen(appt);
-  const overdue = isOverdue(appt);
+  const overdue = isOverdue(appt, fmt.tz);
+  const ritualOnly = isRitualOnly(appt);
   const muted = appt.status === 'cancelled' || appt.status === 'no_show';
 
   return (
@@ -72,6 +74,8 @@ export function AppointmentCard({
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           <StatusBadge status={appt.status} />
           <PaymentBadge status={appt.payment_status} />
+          <RitualChip appt={appt} />
+          <RitualPendingChips appt={appt} />
           <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-plum-600 ring-1 ring-lavender-200">
             <PlatformIcon platform={appt.platform} className="size-3.5" />
             {PLATFORM_LABELS[appt.platform]}
@@ -83,7 +87,9 @@ export function AppointmentCard({
             <p className="flex items-center gap-1.5">
               <Clock className="size-3.5" />
               {fmt.range(appt.start_at, appt.end_at)}
-              {open && <span className={cx('font-bold', overdue ? 'text-rose-600' : 'text-plum-600')}>· {overdue ? `terminó ${relativeTime(appt.end_at)}` : relativeTime(appt.start_at)}</span>}
+              {open && !ritualOnly && (
+                <span className={cx('font-bold', overdue ? 'text-rose-600' : 'text-plum-600')}>· {overdue ? `terminó ${relativeTime(appt.end_at)}` : relativeTime(appt.start_at)}</span>
+              )}
             </p>
             {appt.balance > 0 && appt.payment_status !== 'unpaid' && (
               <p className="font-semibold text-gold-600">Saldo pendiente: {formatMoney(appt.balance, appt.currency)}</p>
@@ -192,6 +198,12 @@ export function ActionMenu({ appt, open, onClose }: { appt: Appointment; open: b
       <p className="-mt-1 mb-3 text-sm text-plum-500 capitalize">
         {fmt.dateShort(appt.start_at)} · {fmt.range(appt.start_at, appt.end_at)}
       </p>
+      {hasRitual(appt) && (
+        <div className="mb-3">
+          <p className="mb-2 text-xs font-extrabold tracking-wider text-gold-600 uppercase">Seguimiento del ritual</p>
+          <RitualFollowup appt={appt} compact />
+        </div>
+      )}
       <div className="flex flex-col gap-1 pb-2">
         {items
           .filter((i) => i.show !== false)

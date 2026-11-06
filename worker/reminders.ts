@@ -1,9 +1,10 @@
 // Programación y envío de recordatorios push (ejecutado por el Cron Trigger cada 5 minutos).
-import { formatMoney, PLATFORM_LABELS } from '../shared/domain';
+import { formatMoney, isRitualOnly, PLATFORM_LABELS, RITUAL_WINDOW_DAYS, ritualDeadline } from '../shared/domain';
 import { dayRangeUtc, formatTime, todayYmd, toHm } from '../shared/time';
 import type { AppointmentStatus, Platform, Settings } from '../shared/types';
 import type { Env } from './env';
 import { nowIso } from './http';
+import { openCounts, RITUAL_ONLY_SQL } from './ritual';
 import { loadSettings } from './settings';
 import { broadcast, pushConfigured } from './webpush';
 
@@ -11,7 +12,7 @@ const FINAL: AppointmentStatus[] = ['completed', 'cancelled', 'no_show'];
 
 export function reminderStatements(
   env: Env,
-  appt: { id: number; start_at: string; end_at: string; status: AppointmentStatus },
+  appt: { id: number; start_at: string; end_at: string; status: AppointmentStatus; services?: { category: string | null }[]; ritual_only?: boolean },
   settings: Settings,
 ): D1PreparedStatement[] {
   const stmts = [env.DB.prepare('DELETE FROM reminders WHERE appointment_id = ? AND sent_at IS NULL').bind(appt.id)];
@@ -27,7 +28,10 @@ export function reminderStatements(
     }
   }
   if (settings.overdue_reminder) {
-    const at = end + settings.overdue_after_min * 60_000;
+    // Un ritual no tiene hora fija: su aviso de "atrasado" es al vencer el plazo de una semana y dos días.
+    const ritual = appt.ritual_only ?? (appt.services ? isRitualOnly({ services: appt.services }) : false);
+    const base = ritual ? ritualDeadline(appt.start_at, settings.timezone, now).deadlineMs : end;
+    const at = base + settings.overdue_after_min * 60_000;
     if (at > now - 60_000) stmts.push(env.DB.prepare(insert).bind(appt.id, 'overdue', settings.overdue_after_min, new Date(at).toISOString()));
   }
   return stmts;
@@ -35,12 +39,12 @@ export function reminderStatements(
 
 export async function rescheduleAllFutureReminders(env: Env, settings: Settings) {
   const { results } = await env.DB.prepare(
-    `SELECT id, start_at, end_at, status FROM appointments
-     WHERE end_at > ? AND status NOT IN ('completed','cancelled','no_show')`,
+    `SELECT a.id, a.start_at, a.end_at, a.status, ${RITUAL_ONLY_SQL} AS ritual_only FROM appointments a
+     WHERE (a.end_at > ? OR ${RITUAL_ONLY_SQL}) AND a.status NOT IN ('completed','cancelled','no_show')`,
   )
     .bind(new Date(Date.now() - 24 * 3600_000).toISOString())
-    .all<{ id: number; start_at: string; end_at: string; status: AppointmentStatus }>();
-  const stmts = results.flatMap((a) => reminderStatements(env, a, settings));
+    .all<{ id: number; start_at: string; end_at: string; status: AppointmentStatus; ritual_only: number }>();
+  const stmts = results.flatMap((a) => reminderStatements(env, { ...a, ritual_only: !!a.ritual_only }, settings));
   for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
 }
 
@@ -61,7 +65,8 @@ export async function runReminders(env: Env): Promise<{ sent: number }> {
 
   const { results } = await env.DB.prepare(
     `SELECT r.id AS rid, r.kind, r.offset_min, a.id, a.client_name, a.start_at, a.end_at, a.status, a.platform,
-            (SELECT group_concat(name, ', ') FROM appointment_services s WHERE s.appointment_id = a.id) AS services
+            (SELECT group_concat(name, ', ') FROM appointment_services s WHERE s.appointment_id = a.id) AS services,
+            ${RITUAL_ONLY_SQL} AS ritual_only
      FROM reminders r JOIN appointments a ON a.id = r.appointment_id
      WHERE r.sent_at IS NULL AND r.remind_at <= ?
      ORDER BY r.remind_at LIMIT 25`,
@@ -78,6 +83,7 @@ export async function runReminders(env: Env): Promise<{ sent: number }> {
       status: AppointmentStatus;
       platform: Platform;
       services: string | null;
+      ritual_only: number;
     }>();
 
   let sent = 0;
@@ -95,6 +101,14 @@ export async function runReminders(env: Env): Promise<{ sent: number }> {
         body: `${time}${svc} · ${PLATFORM_LABELS[r.platform] ?? ''}`,
         url: `/citas/${r.id}`,
         tag: `appt-${r.id}`,
+      });
+    } else if (r.ritual_only) {
+      if (!ritualDeadline(r.start_at, settings.timezone, now).overdue) continue; // se reprogramó: aún hay plazo
+      await broadcast(env, {
+        title: `🕯️ Venció el plazo del ritual de ${r.client_name}`,
+        body: `Pasaron ${RITUAL_WINDOW_DAYS} días desde su fecha y sigue sin realizarse${svc}.`,
+        url: `/citas/${r.id}`,
+        tag: `overdue-${r.id}`,
       });
     } else {
       if (new Date(r.end_at) > now) continue; // la cita se extendió o reprogramó
@@ -136,11 +150,7 @@ async function maybeDailySummary(env: Env, settings: Settings, now: Date): Promi
   )
     .bind(start.toISOString(), end.toISOString())
     .all<{ client_name: string; start_at: string }>();
-  const overdue = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM appointments WHERE end_at < ? AND status IN ('scheduled','confirmed','in_progress')`,
-  )
-    .bind(now.toISOString())
-    .first<{ n: number }>();
+  const overdue = { n: (await openCounts(env, settings.timezone, now)).overdue };
   const pending = await env.DB.prepare(
     `SELECT a.currency, SUM(a.final_price - COALESCE((SELECT SUM(amount) FROM payments p WHERE p.appointment_id = a.id), 0)) AS bal
      FROM appointments a WHERE a.status NOT IN ('cancelled','no_show') GROUP BY a.currency`,

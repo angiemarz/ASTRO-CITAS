@@ -18,10 +18,11 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { formatDuration, formatMoney, googleCalendarDayLink, isRitualOnly, PLATFORM_LABELS } from '../../shared/domain';
+import { formatDuration, formatMoney, isRitualOnly, PLATFORM_LABELS } from '../../shared/domain';
 import { relativeTime } from '../../shared/time';
 import { useActions } from '../components/ActionsProvider';
 import { ActionMenu } from '../components/AppointmentCard';
+import { RitualPanel } from '../components/RitualPanel';
 import { useFeedback } from '../components/feedback';
 import { Page, PageHeader } from '../components/Layout';
 import { PlatformIcon } from '../components/PlatformIcon';
@@ -70,7 +71,7 @@ export function AppointmentDetailPage() {
     );
 
   const open = isOpen(a);
-  const overdue = isOverdue(a);
+  const overdue = isOverdue(a, fmt.tz);
   const duration = Math.round((new Date(a.end_at).getTime() - new Date(a.start_at).getTime()) / 60000);
 
   const remove = async () => {
@@ -111,7 +112,11 @@ export function AppointmentDetailPage() {
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={a.status} className="text-sm" />
               <PaymentBadge status={a.payment_status} className="text-sm" />
-              {overdue && <span className="rounded-full bg-rose-500 px-2.5 py-0.5 text-sm font-bold text-white">Atrasada sin marcar</span>}
+              {overdue && (
+                <span className="rounded-full bg-rose-500 px-2.5 py-0.5 text-sm font-bold text-white">
+                  {isRitualOnly(a) ? 'Ritual vencido' : 'Atrasada sin marcar'}
+                </span>
+              )}
               {a.external_source && (
                 <span className="rounded-full bg-gold-300/40 px-2.5 py-0.5 text-sm font-bold text-gold-600">
                   {a.external_source === 'agenda-calcom'
@@ -127,7 +132,7 @@ export function AppointmentDetailPage() {
                   hasta {fmt.time(a.end_at)} · {formatDuration(duration)}
                 </p>
               </div>
-              {open && (
+              {open && !isRitualOnly(a) && (
                 <span className={cx('rounded-full px-3 py-1 text-xs font-extrabold', overdue ? 'bg-blush-100 text-rose-700' : 'bg-gold-300/50 text-plum-700')}>
                   {overdue ? `Terminó ${relativeTime(a.end_at)}` : relativeTime(a.start_at)}
                 </span>
@@ -166,28 +171,6 @@ export function AppointmentDetailPage() {
                 Agregar a Cal.com y Google Calendar
               </Button>
             )}
-            {isRitualOnly(a) && open && (
-              <div className="mt-3 space-y-2 rounded-2xl bg-lavender-50 p-3">
-                <a
-                  href={googleCalendarDayLink({
-                    title: `✨ ${a.services.map((s) => s.name).join(' + ')} · ${a.client_name}`,
-                    ymd: fmt.ymd(a.start_at),
-                    tz: fmt.tz,
-                    details: [`Ritual para ${a.client_name}`, a.contact_value && `Contacto: ${a.contact_value}`, `Cooperación: ${formatMoney(a.final_price, a.currency)}`, a.notes]
-                      .filter(Boolean)
-                      .join('\n'),
-                  })}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex min-h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-gold-400 to-gold-500 px-5 font-bold text-plum-900"
-                >
-                  <CalendarPlus className="size-4" /> Agregar a Google Calendar
-                </a>
-                <p className="text-xs text-plum-500">
-                  Los rituales no ocupan una hora fija: se agregan como evento de día completo, que no bloquea tus horarios de Cal.com.
-                </p>
-              </div>
-            )}
             {a.attended_at && (
               <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800">
                 ✨ Atendida el <span className="capitalize">{fmt.dateShort(a.attended_at)}</span> a las {fmt.time(a.attended_at)}
@@ -197,6 +180,8 @@ export function AppointmentDetailPage() {
               <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800">Iniciada a las {fmt.time(a.started_at)}</p>
             )}
           </Card>
+
+          <RitualPanel appt={a} />
 
           <Card className="p-5">
             <Heading icon={<User />}>Cliente y contacto</Heading>

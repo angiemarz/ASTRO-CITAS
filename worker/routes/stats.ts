@@ -3,6 +3,7 @@ import { addDaysYmd, dayRangeUtc, todayYmd, toYmd as todayYmdOf, zonedToUtc } fr
 import type { DashboardStats } from '../../shared/types';
 import { HttpError, isoDate, json, nowIso, readJson, str, type Ctx } from '../http';
 import { rescheduleAllFutureReminders } from '../reminders';
+import { openCounts } from '../ritual';
 import { loadSettings } from '../settings';
 import { broadcast, pushConfigured } from '../webpush';
 import { APPT_SELECT, mapAppointment } from './appointments';
@@ -33,12 +34,10 @@ export async function dashboard({ env }: Ctx) {
     env.DB.prepare(
       `SELECT
          SUM(CASE WHEN start_at >= ? AND start_at < ? AND status NOT IN ('cancelled','no_show') THEN 1 ELSE 0 END) AS today_count,
-         SUM(CASE WHEN status IN ('scheduled','confirmed','in_progress') AND end_at >= ? THEN 1 ELSE 0 END) AS pending_count,
-         SUM(CASE WHEN status IN ('scheduled','confirmed','in_progress') AND end_at < ? THEN 1 ELSE 0 END) AS overdue_count,
          SUM(CASE WHEN status NOT IN ('cancelled','no_show') AND final_price > 0
                   AND ${PAID.replace(/a\.id/g, 'appointments.id')} < final_price - 0.004 THEN 1 ELSE 0 END) AS unpaid_count
        FROM appointments`,
-    ).bind(s, e, now, now),
+    ).bind(s, e),
     env.DB.prepare(
       `SELECT a.currency, SUM(p.amount) AS total FROM payments p JOIN appointments a ON a.id = p.appointment_id
        WHERE p.paid_at >= ? AND p.paid_at < ? GROUP BY a.currency`,
@@ -55,12 +54,13 @@ export async function dashboard({ env }: Ctx) {
     ).bind(monthStart, e > now ? e : now),
   ]);
 
+  const open = await openCounts(env, tz);
   const c = counts.results[0] as Record<string, number | null>;
   const m = monthCounts.results[0] as Record<string, number | null>;
   const stats: DashboardStats = {
     today_count: c.today_count ?? 0,
-    pending_count: c.pending_count ?? 0,
-    overdue_count: c.overdue_count ?? 0,
+    pending_count: open.pending,
+    overdue_count: open.overdue,
     unpaid_count: c.unpaid_count ?? 0,
     completed_count: m.completed_count ?? 0,
     cancelled_count: m.cancelled_count ?? 0,
@@ -200,6 +200,7 @@ const BACKUP_TABLES = [
   'appointment_promotions',
   'payments',
   'appointment_history',
+  'ritual_details',
 ];
 
 export async function exportData({ env }: Ctx) {

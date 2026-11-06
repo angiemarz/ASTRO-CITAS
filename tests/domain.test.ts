@@ -71,3 +71,34 @@ describe('rituales', () => {
     expect(url.searchParams.get('text')).toBe('✨ Abrecaminos · Ana');
   });
 });
+
+import { hasRitual, RITUAL_WINDOW_DAYS, ritualCountdownLabel, ritualDeadline } from '../shared/domain';
+
+describe('plazo de los rituales: una semana y dos días', () => {
+  const TZ = 'America/Monterrey';
+  // cita del viernes 30 de octubre (8:00 PM hora local = 02:00 UTC del 31)
+  const start = '2026-10-31T02:00:00Z';
+  it('el plazo son 9 días desde la fecha de la cita', () => {
+    expect(RITUAL_WINDOW_DAYS).toBe(9);
+    expect(ritualDeadline(start, TZ, new Date('2026-11-06T18:00:00Z')).deadlineYmd).toBe('2026-11-08');
+  });
+  it('cuenta los días que faltan', () => {
+    const r = ritualDeadline(start, TZ, new Date('2026-11-06T18:00:00Z')); // 6 de nov, mediodía local
+    expect(r).toMatchObject({ daysLeft: 2, overdue: false });
+    expect(ritualCountdownLabel(r)).toBe('Faltan 2 días');
+    expect(ritualCountdownLabel(ritualDeadline(start, TZ, new Date('2026-11-07T18:00:00Z')))).toBe('Falta 1 día');
+  });
+  it('vence hoy durante todo el último día y se pone en rojo al día siguiente', () => {
+    const lastMinute = ritualDeadline(start, TZ, new Date('2026-11-09T05:59:00Z')); // 8 nov 11:59 PM local
+    expect(lastMinute).toMatchObject({ daysLeft: 0, overdue: false });
+    expect(ritualCountdownLabel(lastMinute)).toBe('Vence hoy');
+    const next = ritualDeadline(start, TZ, new Date('2026-11-09T06:00:00Z')); // 9 nov 12:00 AM local
+    expect(next).toMatchObject({ daysLeft: -1, overdue: true });
+    expect(ritualCountdownLabel(next)).toBe('Venció ayer');
+    expect(ritualCountdownLabel(ritualDeadline(start, TZ, new Date('2026-11-12T18:00:00Z')))).toBe('Venció hace 4 días');
+  });
+  it('hasRitual detecta rituales aunque haya otros servicios', () => {
+    expect(hasRitual({ services: [{ category: 'Tarot' }, { category: 'Rituales ✨' }] })).toBe(true);
+    expect(hasRitual({ services: [{ category: 'Tarot' }] })).toBe(false);
+  });
+});

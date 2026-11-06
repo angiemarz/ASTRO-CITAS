@@ -3,6 +3,7 @@ import * as auth from './auth';
 import type { Env } from './env';
 import { HttpError, json, Router } from './http';
 import { runReminders } from './reminders';
+import { ensureSchema } from './schema';
 import * as appts from './routes/appointments';
 import * as catalog from './routes/catalog';
 import * as cal from './routes/calendar';
@@ -37,6 +38,7 @@ const router = new Router()
   .post('/api/appointments/:id/reschedule', appts.reschedule)
   .post('/api/appointments/:id/payments', appts.addPayment)
   .post('/api/appointments/:id/calcom', appts.sendToCalcom)
+  .put('/api/appointments/:id/ritual', appts.setRitual)
   // Pagos
   .get('/api/payments', appts.listPayments)
   .delete('/api/payments/:id', appts.deletePayment)
@@ -76,6 +78,7 @@ async function handleApi(req: Request, env: Env, exec: ExecutionContext): Promis
   if (!match) throw new HttpError(404, 'Ruta no encontrada.');
   if (match === 'method') throw new HttpError(405, 'Método no permitido.');
   if (!auth.checkSameOrigin(req)) throw new HttpError(403, 'Origen no permitido.');
+  if (!match.route.public || url.pathname.startsWith('/api/hooks/')) await ensureSchema(env);
   if (!match.route.public && !(await auth.isAuthenticated(req, env, exec))) {
     throw new HttpError(401, 'Tu sesión expiró. Vuelve a iniciar sesión.');
   }
@@ -116,14 +119,15 @@ export default {
 
   async scheduled(event, env, exec) {
     exec.waitUntil(
-      runReminders(env).then(
-        (r) => r.sent && console.log(`Recordatorios enviados: ${r.sent}`),
-        (e) => console.error('Error en recordatorios', e),
-      ),
+      (async () => {
+        await ensureSchema(env); // antes que cualquier consulta que use las tablas nuevas
+        const r = await runReminders(env).catch((e) => (console.error('Error en recordatorios', e), { sent: 0 }));
+        if (r.sent) console.log(`Recordatorios enviados: ${r.sent}`);
+        // Cada 30 minutos: recupera reservas de Cal.com que no hayan llegado por webhook.
+        if (new Date(event.scheduledTime).getUTCMinutes() % 30 < 5) {
+          await reconcileCalcom(env, exec).catch((e) => console.error('Error al sincronizar Cal.com', e));
+        }
+      })().catch((e) => console.error('Error programado', e)),
     );
-    // Cada 30 minutos: recupera reservas de Cal.com que no hayan llegado por webhook.
-    if (new Date(event.scheduledTime).getUTCMinutes() % 30 < 5) {
-      exec.waitUntil(reconcileCalcom(env, exec).catch((e) => console.error('Error al sincronizar Cal.com', e)));
-    }
   },
 } satisfies ExportedHandler<Env>;
