@@ -2,6 +2,8 @@
 // agregar funciones no obligue a ejecutar migraciones a mano en la consola de D1. Nunca se borra ni se
 // reescribe información existente: solo se agregan tablas/columnas que faltan. Las migraciones de /migrations
 // contienen lo mismo para instalaciones nuevas.
+import { DESCRIPCIONES } from '../shared/descripciones';
+import { normalize } from '../shared/promoGenerator';
 import type { Env } from './env';
 
 let ready = false;
@@ -79,7 +81,33 @@ export async function ensureSchema(env: Env): Promise<void> {
        WHERE lower(trim(name)) = 'ritual 11:11'`,
     ).bind(desc, intentions),
   ]);
+  await applyDescriptions(env);
   ready = true;
+}
+
+/** Texto automático de versiones anteriores: se reemplaza sin conservarlo. */
+const AUTO_TEXTS = new Set([
+  'Ritual de intención especial del portal 11:11, enfocado en canalizar deseos, manifestar propósitos y trabajar simbólicamente con la energía de nuevos comienzos.',
+]);
+
+/** Pone las descripciones de la hoja de Excel en el servicio, ritual, promoción o paquete que se llame igual (una sola vez). */
+async function applyDescriptions(env: Env) {
+  const marker = 'seed_descripciones_xlsx_1';
+  if (await env.DB.prepare('SELECT 1 FROM settings WHERE key = ?').bind(marker).first()) return;
+  const wanted = new Map(DESCRIPCIONES.map(([n, d]) => [normalize(n), d]));
+  const stmts: D1PreparedStatement[] = [];
+  for (const table of ['services', 'promotions'] as const) {
+    const rows = await env.DB.prepare(`SELECT id, name, description FROM ${table}`).all<{ id: number; name: string; description: string | null }>();
+    for (const r of rows.results) {
+      const d = wanted.get(normalize(r.name));
+      if (!d) continue;
+      const old = (r.description ?? '').trim();
+      // Lo que ya escribiste se conserva debajo de la descripción nueva
+      const text = !old || old === d || AUTO_TEXTS.has(old) ? d : d.includes(old) ? d : `${d}\n\n${old}`;
+      stmts.push(env.DB.prepare(`UPDATE ${table} SET description = ? WHERE id = ?`).bind(text, r.id));
+    }
+  }
+  await env.DB.batch([...stmts, env.DB.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').bind(marker, JSON.stringify(true))]);
 }
 
 /** Datos iniciales que se agregan una sola vez: si luego los eliminas o editas, no vuelven a aparecer. */
