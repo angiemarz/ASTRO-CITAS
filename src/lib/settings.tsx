@@ -31,6 +31,8 @@ export const FALLBACK_SETTINGS: Settings = {
   calcom_event_url: null,
   calcom_push_manual: true,
   calcom_attendee_email: null,
+  usd_rate: null,
+  usd_rate_updated_at: null,
 };
 
 export function useSettingsQuery(enabled = true) {

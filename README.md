@@ -165,6 +165,14 @@ La agenda lee `servicios` (separados por `|`), `total`, `descuento`, `ubicacion`
 | Alguien edita el enlace y baja el total | Si el total es menor al de tu catálogo (considerando el 5% por 3 o más servicios), se registra el del catálogo y queda la advertencia en el historial. |
 | Borras una cita que vino de Cal.com y la sincronización la recrea | Las citas borradas se recuerdan y no se vuelven a crear. |
 
+## 📈 Promociones inteligentes, estadísticas y tipo de cambio
+
+- **Descripciones**: servicios, rituales y promociones tienen descripción larga y opcional (varias líneas). Se ve completa al tocar «Ver descripción completa».
+- **Generador de promociones** (menú): escribes temas ("Amor propio, abundancia…") y propone paquetes con tus servicios/rituales según nombres, categorías y descripciones. Funciona sin IA de pago. Eliges descuento (0/5/10/15/20 %), editas, ves la vista previa y se guarda como promoción real (paquete: exige todos sus servicios).
+- **Estadísticas** (menú): citas, ingresos facturados vs. cobrados, ticket promedio, más/menos agendados, rituales, promociones y gráficas, con filtros de periodo. Un paquete cuenta una sola cita y su precio se reparte entre sus servicios.
+- **Ritual 11:11** ($111 MXN) se crea solo una vez, con intenciones que se eligen al agendar.
+- **Tipo de cambio** (Configuración): 1 USD = N MXN. Los precios se guardan en MXN; el USD se calcula debajo, después de aplicar descuentos.
+
 ## 🕯️ Rituales
 
 - Las citas de **solo rituales** no ocupan una hora fija: no se mandan a Cal.com ni bloquean horarios, y tienen el botón **Agregar a Google Calendar** (evento de día completo).

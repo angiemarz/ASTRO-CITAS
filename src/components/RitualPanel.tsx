@@ -159,6 +159,7 @@ export function RitualPanel({ appt }: { appt: Appointment }) {
             details: [
               `Ritual para ${appt.client_name}`,
               appt.ritual_topic && `Tema: ${appt.ritual_topic}`,
+              ...appt.services.filter((x) => x.intention).map((x) => `Intención (${x.name}): ${x.intention}`),
               appt.contact_value && `Contacto: ${appt.contact_value}`,
               `Cooperación: ${formatMoney(appt.final_price, appt.currency)}`,
               appt.notes,

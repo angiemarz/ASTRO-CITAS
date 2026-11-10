@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  BarChart3,
   CalendarHeart,
   ClipboardList,
   Home,
@@ -11,6 +12,7 @@ import {
   Tag,
   Users,
   Wallet,
+  Wand2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
@@ -28,6 +30,8 @@ export const SECTIONS = [
   { to: '/clientes', label: 'Clientes', icon: Users },
   { to: '/servicios', label: 'Servicios', icon: Sparkles },
   { to: '/promociones', label: 'Promociones', icon: Tag },
+  { to: '/generador', label: 'Generador de promociones', icon: Wand2 },
+  { to: '/estadisticas', label: 'Estadísticas', icon: BarChart3 },
   { to: '/pagos', label: 'Pagos y estadísticas', icon: Wallet },
   { to: '/configuracion', label: 'Configuración', icon: Settings },
 ];

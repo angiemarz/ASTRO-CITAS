@@ -1,5 +1,15 @@
-import { FINAL_STATUSES, hasRitual, isRitualOnly, paymentStatus, round2, STATUS_LABELS } from '../../shared/domain';
-import { formatDateShort, formatTime, isValidTimeZone } from '../../shared/time';
+import {
+  FINAL_STATUSES,
+  hasRitual,
+  isPromotionExpired,
+  isPromotionValidOn,
+  isRitualOnly,
+  parseIntentions,
+  paymentStatus,
+  round2,
+  STATUS_LABELS,
+} from '../../shared/domain';
+import { formatDateShort, formatTime, isValidTimeZone, toYmd } from '../../shared/time';
 import type {
   Appointment,
   AppointmentInput,
@@ -35,7 +45,7 @@ export const APPT_SELECT = `
   SELECT a.*,
     ${PAID_SQL} AS paid_total,
     (SELECT json_group_array(json_object('id', s.id, 'service_id', s.service_id, 'name', s.name,
-        'category', s.category, 'price', s.price, 'duration_min', s.duration_min))
+        'category', s.category, 'price', s.price, 'duration_min', s.duration_min, 'intention', s.intention))
        FROM appointment_services s WHERE s.appointment_id = a.id) AS services_json,
     (SELECT json_group_array(json_object('id', pr.id, 'promotion_id', pr.promotion_id, 'name', pr.name,
         'original_price', pr.original_price, 'special_price', pr.special_price, 'savings', pr.savings))
@@ -161,6 +171,7 @@ function validate(body: AppointmentInput): CleanInput {
     category: str(s.category, 80),
     price: num(s.price ?? 0, 'precio del servicio', { min: 0, max: 10_000_000 }),
     duration_min: optInt(s.duration_min),
+    intention: str(s.intention, 100),
   }));
   const promotions = (Array.isArray(body.promotions) ? body.promotions : []).slice(0, 10).map((p) => ({
     promotion_id: optInt(p.promotion_id),
@@ -244,8 +255,8 @@ function childStatements(env: Env, idRef: number | 'last', input: CleanInput): D
   for (const s of input.services) {
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO appointment_services (appointment_id, service_id, name, category, price, duration_min) VALUES (${ref}, ?, ?, ?, ?, ?)`,
-      ).bind(...bindId([s.service_id, s.name, s.category, s.price, s.duration_min])),
+        `INSERT INTO appointment_services (appointment_id, service_id, name, category, price, duration_min, intention) VALUES (${ref}, ?, ?, ?, ?, ?, ?)`,
+      ).bind(...bindId([s.service_id, s.name, s.category, s.price, s.duration_min, s.intention])),
     );
   }
   for (const p of input.promotions) {
@@ -256,6 +267,56 @@ function childStatements(env: Env, idRef: number | 'last', input: CleanInput): D
     );
   }
   return stmts;
+}
+
+/**
+ * Reglas del catálogo al guardar una cita desde la agenda:
+ * - Si un servicio ofrece intenciones (Ritual 11:11…), hay que elegir una de ellas.
+ * - Una promoción nueva debe existir, estar activa y vigente en la fecha de la cita, y un paquete exige todos sus servicios.
+ *   Las promociones que la cita ya tenía se conservan aunque hayan vencido (historial).
+ */
+async function checkCatalogRules(env: Env, input: CleanInput, keepPromotionIds: number[] = []) {
+  const ids = [...new Set(input.services.map((s) => s.service_id).filter((x): x is number => !!x))];
+  if (ids.length) {
+    const { results } = await env.DB.prepare(`SELECT id, name, intentions FROM services WHERE id IN (${ids.map(() => '?').join(',')})`)
+      .bind(...ids)
+      .all<{ id: number; name: string; intentions: string | null }>();
+    const byId = new Map(results.map((r) => [r.id, r]));
+    for (const line of input.services) {
+      const options = parseIntentions(byId.get(line.service_id ?? -1)?.intentions);
+      if (!options.length) {
+        line.intention = null;
+        continue;
+      }
+      const picked = options.find((o) => o.toLowerCase() === (line.intention ?? '').trim().toLowerCase());
+      if (!picked) throw new HttpError(400, `Elige la intención de "${line.name}": ${options.join(', ')}.`);
+      line.intention = picked;
+    }
+  }
+  const promoIds = [...new Set(input.promotions.map((p) => p.promotion_id).filter((x): x is number => !!x && !keepPromotionIds.includes(x)))];
+  if (promoIds.length) {
+    const ymd = toYmd(input.start_at, input.timezone);
+    const { results } = await env.DB.prepare(
+      `SELECT p.id, p.name, p.active, p.valid_from, p.valid_to, p.requires_all,
+              (SELECT group_concat(service_id) FROM promotion_services ps WHERE ps.promotion_id = p.id) AS service_ids
+       FROM promotions p WHERE p.id IN (${promoIds.map(() => '?').join(',')})`,
+    )
+      .bind(...promoIds)
+      .all<{ id: number; name: string; active: number; valid_from: string | null; valid_to: string | null; requires_all: number; service_ids: string | null }>();
+    const found = new Map(results.map((r) => [r.id, r]));
+    for (const id of promoIds) {
+      const p = found.get(id);
+      const label = input.promotions.find((x) => x.promotion_id === id)?.name ?? 'la promoción';
+      if (!p) throw new HttpError(400, `La promoción "${label}" ya no existe.`);
+      if (!p.active) throw new HttpError(400, `La promoción "${p.name}" está desactivada y no se puede usar en citas nuevas.`);
+      if (isPromotionExpired(p, ymd)) throw new HttpError(400, `La promoción "${p.name}" venció el ${p.valid_to} y no se puede usar en citas nuevas.`);
+      if (!isPromotionValidOn(p, ymd)) throw new HttpError(400, `La promoción "${p.name}" empieza el ${p.valid_from}; todavía no está vigente en la fecha de esta cita.`);
+      if (p.requires_all) {
+        const need = (p.service_ids ?? '').split(',').filter(Boolean).map(Number);
+        if (need.some((sid) => !ids.includes(sid))) throw new HttpError(400, `"${p.name}" es un paquete: la cita debe incluir todos sus servicios.`);
+      }
+    }
+  }
 }
 
 // ---------- Handlers ----------
@@ -365,6 +426,7 @@ export async function checkConflicts({ env, url }: Ctx) {
 export async function createAppointment({ req, env }: Ctx) {
   const input = validate(await readJson<AppointmentInput>(req));
   const settings = await loadSettings(env);
+  await checkCatalogRules(env, input);
   if (!input.allow_overlap && !['cancelled', 'no_show'].includes(input.status)) {
     const conflicts = await findConflicts(env, input.start_at, input.end_at);
     if (conflicts.length) throw conflictError(conflicts, settings);
@@ -430,6 +492,7 @@ export async function updateAppointment({ req, env, params }: Ctx) {
   if (!before) throw new HttpError(404, 'La cita no existe.');
   const input = validate(await readJson<AppointmentInput>(req));
   const settings = await loadSettings(env);
+  await checkCatalogRules(env, input, before.promotions.map((p) => p.promotion_id).filter((x): x is number => !!x));
   if (!input.allow_overlap && !['cancelled', 'no_show'].includes(input.status)) {
     const conflicts = await findConflicts(env, input.start_at, input.end_at, id);
     if (conflicts.length) throw conflictError(conflicts, settings);

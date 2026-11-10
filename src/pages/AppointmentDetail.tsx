@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Money } from '../components/Money';
 import { formatDuration, formatMoney, isRitualOnly, PLATFORM_LABELS } from '../../shared/domain';
 import { relativeTime } from '../../shared/time';
 import { useActions } from '../components/ActionsProvider';
@@ -219,8 +220,9 @@ export function AppointmentDetailPage() {
                       {s.category}
                       {s.duration_min ? ` · ${formatDuration(s.duration_min)}` : ''}
                     </span>
+                    {s.intention && <span className="mt-0.5 block text-xs font-bold text-gold-600">✨ Intención: {s.intention}</span>}
                   </span>
-                  <span className="font-bold text-plum-700">{formatMoney(s.price, a.currency)}</span>
+                  <Money amount={s.price} currency={a.currency} right className="font-bold text-plum-700" />
                 </li>
               ))}
               {!a.services.length && <li className="py-2 text-sm text-plum-500">Sin servicios registrados</li>}
@@ -232,16 +234,16 @@ export function AppointmentDetailPage() {
             ))}
             <div className="gold-line my-3" />
             <dl className="space-y-1.5 text-sm">
-              <Row label="Precio original">{formatMoney(a.original_price, a.currency)}</Row>
+              <Row label="Precio original"><Money amount={a.original_price} currency={a.currency} right className="" /></Row>
               <Row label="Descuento">{a.discount ? `− ${formatMoney(a.discount, a.currency)}` : '—'}</Row>
               <Row label="Precio final">
-                <span className="text-base font-extrabold text-plum-800">{formatMoney(a.final_price, a.currency)}</span>
+                <Money amount={a.final_price} currency={a.currency} right className="text-base font-extrabold text-plum-800" />
               </Row>
               <Row label="Total abonado">
-                <span className="font-bold text-emerald-700">{formatMoney(a.paid_total, a.currency)}</span>
+                <Money amount={a.paid_total} currency={a.currency} right className="font-bold text-emerald-700" />
               </Row>
               <Row label="Saldo pendiente">
-                <span className={cx('font-extrabold', a.balance > 0 ? 'text-rose-600' : 'text-emerald-600')}>{formatMoney(a.balance, a.currency)}</span>
+                <Money amount={a.balance} currency={a.currency} right className={cx('font-extrabold', a.balance > 0 ? 'text-rose-600' : 'text-emerald-600')} />
               </Row>
             </dl>
           </Card>
