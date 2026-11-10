@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Money } from './Money';
 import { formatMoney, hasRitual, isRitualOnly, PLATFORM_LABELS } from '../../shared/domain';
 import { relativeTime } from '../../shared/time';
 import type { Appointment } from '../../shared/types';
@@ -80,7 +81,7 @@ export function AppointmentCard({
             <PlatformIcon platform={appt.platform} className="size-3.5" />
             {PLATFORM_LABELS[appt.platform]}
           </span>
-          <span className="ml-auto text-sm font-extrabold text-plum-700">{formatMoney(appt.final_price, appt.currency)}</span>
+          <span className="ml-auto"><Money amount={appt.final_price} currency={appt.currency} right className="text-sm font-extrabold text-plum-700" /></span>
         </div>
         {!compact && (
           <div className="mt-2 space-y-1 text-xs text-plum-500">

@@ -8,6 +8,7 @@ import { AppLayout } from './components/Layout';
 import { LoadingBlock } from './components/ui';
 import { get, setUnauthorizedHandler } from './lib/api';
 import { SettingsProvider } from './lib/settings';
+import { AnalyticsPage } from './pages/Analytics';
 import { AllAppointmentsPage } from './pages/AllAppointments';
 import { AppointmentDetailPage } from './pages/AppointmentDetail';
 import { AppointmentFormPage } from './pages/AppointmentForm';
@@ -16,6 +17,7 @@ import { HomePage } from './pages/Home';
 import { LoginPage } from './pages/Login';
 import { MorePage } from './pages/More';
 import { PendingPage } from './pages/Pending';
+import { PromoGeneratorPage } from './pages/PromoGenerator';
 import { PromotionsPage } from './pages/Promotions';
 import { ServicesPage } from './pages/Services';
 import { SettingsPage } from './pages/SettingsPage';
@@ -91,6 +93,8 @@ export default function App() {
                   <Route path="clientes/:id" element={<ClientDetailPage />} />
                   <Route path="servicios" element={<ServicesPage />} />
                   <Route path="promociones" element={<PromotionsPage />} />
+                  <Route path="generador" element={<PromoGeneratorPage />} />
+                  <Route path="estadisticas" element={<AnalyticsPage />} />
                   <Route path="pagos" element={<StatsPage />} />
                   <Route path="configuracion" element={<SettingsPage />} />
                   <Route path="mas" element={<MorePage />} />

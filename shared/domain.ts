@@ -83,12 +83,32 @@ export function paymentStatus(finalPrice: number, paid: number): PaymentStatus {
 
 export function formatMoney(amount: number, currency: Currency | string = 'MXN'): string {
   const n = Number(amount) || 0;
-  const formatted = new Intl.NumberFormat('es-MX', {
-    minimumFractionDigits: Number.isInteger(round2(n)) ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(n);
+  const formatted = new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
   return `$${formatted} ${currency}`;
 }
+
+// ---------- Tipo de cambio (MXN es la moneda principal; el USD se calcula) ----------
+
+/** Pesos → dólares, redondeado a 2 decimales. Se convierte el precio ya con descuentos, nunca una suma de precios redondeados. */
+export function mxnToUsd(mxn: number, rate: number | null | undefined): number | null {
+  if (!rate || !(rate > 0)) return null;
+  return Math.round(((Number(mxn) || 0) / rate + Number.EPSILON) * 100) / 100;
+}
+
+/** Cualquier monto a pesos (los montos en USD se pasan a MXN con el tipo de cambio). */
+export function toMxn(amount: number, currency: Currency | string, rate: number | null | undefined): number | null {
+  if (currency !== 'USD') return round2(amount);
+  if (!rate || !(rate > 0)) return null;
+  return round2(amount * rate);
+}
+
+/** "≈ $5.55 USD", o null si todavía no hay tipo de cambio. */
+export function usdEquivalent(mxn: number, rate: number | null | undefined): string | null {
+  const usd = mxnToUsd(mxn, rate);
+  return usd === null ? null : `≈ ${formatMoney(usd, 'USD')}`;
+}
+
+export const DISCOUNT_OPTIONS = [0, 5, 10, 15, 20] as const;
 
 export function formatDuration(min: number | null | undefined): string {
   if (!min) return '';
@@ -123,7 +143,26 @@ export function promoIsApplicable(
 ): boolean {
   if (!isPromotionValidOn(promo, ymd)) return false;
   if (!promo.service_ids || promo.service_ids.length === 0) return serviceIds.length > 0;
+  // Paquete: solo cuando están todos sus servicios. Promoción normal: con que haya uno.
+  if (promo.requires_all) return promo.service_ids.every((id) => serviceIds.includes(id));
   return promo.service_ids.some((id) => serviceIds.includes(id));
+}
+
+/** Las intenciones de un servicio se guardan como JSON; esto las lee como lista (vacía en los registros anteriores). */
+export function parseIntentions(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map(String);
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Ya pasó su vigencia (no se puede elegir en citas nuevas, pero se conserva en el historial). */
+export function isPromotionExpired(p: Pick<Promotion, 'valid_to'>, ymd: string): boolean {
+  return !!p.valid_to && ymd > p.valid_to;
 }
 
 export function computePromo(
@@ -153,6 +192,7 @@ export function serviceToLine(s: Service) {
     category: s.category,
     price: Number(s.price) || 0,
     duration_min: s.duration_min,
+    intention: null as string | null,
   };
 }
 

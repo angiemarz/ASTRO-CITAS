@@ -41,6 +41,8 @@ export interface Service {
   currency: Currency;
   duration_min: number | null;
   active: number;
+  /** Intenciones entre las que la clienta elige al agendar (p. ej. Ritual 11:11). Vacío = no pregunta. */
+  intentions: string[];
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +59,8 @@ export interface Promotion {
   conditions: string | null;
   stackable: number;
   active: number;
+  /** Paquete: solo aplica cuando la cita incluye TODOS sus servicios (las promociones anteriores: 0). */
+  requires_all: number;
   service_ids: number[];
   created_at: string;
   updated_at: string;
@@ -69,6 +73,8 @@ export interface AppointmentService {
   category: string | null;
   price: number;
   duration_min: number | null;
+  /** Intención elegida por la clienta, si el servicio ofrece intenciones. */
+  intention?: string | null;
 }
 
 export interface AppointmentPromotion {
@@ -195,6 +201,9 @@ export interface Settings {
   calcom_push_manual: boolean;
   /** Correo que se usa como asistente en Cal.com cuando la clienta no dio el suyo. */
   calcom_attendee_email: string | null;
+  /** Tipo de cambio manual: cuántos pesos (MXN) vale 1 dólar (USD). Los precios en USD se calculan, no se guardan. */
+  usd_rate: number | null;
+  usd_rate_updated_at: string | null;
 }
 
 export interface DashboardStats {

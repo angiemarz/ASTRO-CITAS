@@ -24,6 +24,8 @@ export const DEFAULT_SETTINGS: Settings = {
   calcom_event_url: null,
   calcom_push_manual: true,
   calcom_attendee_email: null,
+  usd_rate: null,
+  usd_rate_updated_at: null,
 };
 
 export async function loadSettings(env: Env): Promise<Settings> {
@@ -105,6 +107,16 @@ function sanitize(patch: Partial<Settings>): Partial<Settings> {
     if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new HttpError(400, 'Correo inválido.');
     out.calcom_attendee_email = v || null;
   }
+  if (patch.usd_rate !== undefined) {
+    // Cuántos pesos vale 1 dólar. Vacío = sin tipo de cambio (no se muestran equivalentes en USD).
+    if (patch.usd_rate === null || String(patch.usd_rate).trim() === '') out.usd_rate = null;
+    else {
+      const n = Number(String(patch.usd_rate).replace(',', '.'));
+      if (!Number.isFinite(n) || n <= 0) throw new HttpError(400, 'El tipo de cambio debe ser un número mayor a 0 (pesos por 1 dólar).');
+      if (n > 1000) throw new HttpError(400, 'El tipo de cambio parece demasiado alto. Escribe cuántos pesos vale 1 dólar, por ejemplo 20.00.');
+      out.usd_rate = Math.round(n * 10000) / 10000;
+    }
+  }
   return out;
 }
 
@@ -114,6 +126,8 @@ export async function getSettings({ env }: Ctx) {
 
 export async function updateSettings({ req, env }: Ctx) {
   const patch = sanitize(await readJson<Partial<Settings>>(req));
+  // La fecha de la última actualización la pone el servidor cada vez que se guarda el tipo de cambio.
+  if ('usd_rate' in patch) patch.usd_rate_updated_at = patch.usd_rate === null ? null : new Date().toISOString();
   const stmts = Object.entries(patch).map(([k, v]) =>
     env.DB.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(
       k,

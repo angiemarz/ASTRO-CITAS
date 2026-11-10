@@ -1,4 +1,5 @@
 // Panel de inicio, estadísticas, notificaciones push y respaldo.
+import { computeAnalytics, type AnalyticsAppointment, type AnalyticsCatalogItem, type AnalyticsLine, type AnalyticsPromo } from '../../shared/analytics';
 import { addDaysYmd, dayRangeUtc, todayYmd, toYmd as todayYmdOf, zonedToUtc } from '../../shared/time';
 import type { DashboardStats } from '../../shared/types';
 import { HttpError, isoDate, json, nowIso, readJson, str, type Ctx } from '../http';
@@ -236,4 +237,42 @@ export async function importData({ req, env }: Ctx) {
   for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
   await rescheduleAllFutureReminders(env, await loadSettings(env));
   return json({ ok: true });
+}
+
+/** Estadísticas con datos reales (ver shared/analytics.ts para las reglas de conteo). */
+export async function analytics({ env, url }: Ctx) {
+  const settings = await loadSettings(env);
+  const tz = settings.timezone;
+  const today = todayYmd(tz);
+  const from = url.searchParams.get('from')
+    ? isoDate(url.searchParams.get('from'), 'from')
+    : zonedToUtc(`${today.slice(0, 7)}-01`, '00:00', tz).toISOString();
+  const to = url.searchParams.get('to') ? isoDate(url.searchParams.get('to'), 'to') : dayRangeUtc(today, tz).end.toISOString();
+  if (to <= from) throw new HttpError(400, 'La fecha final debe ser posterior a la inicial.');
+
+  const [appts, lines, promos, catalog] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT a.id, a.start_at, a.status, a.currency, a.original_price, a.discount, a.final_price, ${PAID} AS paid
+       FROM appointments a WHERE a.start_at >= ? AND a.start_at < ?`,
+    ).bind(from, to),
+    env.DB.prepare(
+      `SELECT s.appointment_id, s.service_id, s.name, s.category, s.price, s.intention FROM appointment_services s
+       JOIN appointments a ON a.id = s.appointment_id WHERE a.start_at >= ? AND a.start_at < ?`,
+    ).bind(from, to),
+    env.DB.prepare(
+      `SELECT p.appointment_id, p.promotion_id, p.name, p.special_price, p.savings FROM appointment_promotions p
+       JOIN appointments a ON a.id = p.appointment_id WHERE a.start_at >= ? AND a.start_at < ?`,
+    ).bind(from, to),
+    env.DB.prepare('SELECT id, name, category, active FROM services'),
+  ]);
+  const result = computeAnalytics(
+    {
+      appointments: appts.results as unknown as AnalyticsAppointment[],
+      lines: lines.results as unknown as AnalyticsLine[],
+      promos: promos.results as unknown as AnalyticsPromo[],
+      catalog: catalog.results as unknown as AnalyticsCatalogItem[],
+    },
+    { rate: settings.usd_rate, tz },
+  );
+  return json({ from, to, rate: settings.usd_rate, ...result });
 }

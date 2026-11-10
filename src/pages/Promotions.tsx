@@ -1,10 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Gift, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Gift, Pencil, Plus, Trash2, Wand2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { describePromo, isPromotionValidOn, PROMO_TYPE_LABELS } from '../../shared/domain';
 import type { Currency, Promotion, PromoType } from '../../shared/types';
 import { useFeedback } from '../components/feedback';
 import { Page, PageHeader } from '../components/Layout';
+import { Money } from '../components/Money';
 import { Button, Chip, cx, EmptyState, ErrorBox, Field, IconButton, Input, LoadingBlock, Segmented, Select, Sheet, Textarea, Toggle } from '../components/ui';
 import { del, post, put } from '../lib/api';
 import { usePromotions, useServices } from '../lib/hooks';
@@ -30,9 +32,14 @@ export function PromotionsPage() {
       <PageHeader
         title="Promociones"
         actions={
-          <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setEditing({})}>
-            Nueva
-          </Button>
+          <div className="flex gap-2">
+            <Link to="/generador" className="inline-flex items-center gap-1.5 rounded-full bg-plum-50 px-3 py-2 text-xs font-extrabold text-plum-600">
+              <Wand2 className="size-4" /> Generador
+            </Link>
+            <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setEditing({})}>
+              Nueva
+            </Button>
+          </div>
         }
       >
         <Segmented<Filter>
@@ -63,6 +70,8 @@ export function PromotionsPage() {
                     <div className="min-w-0 flex-1">
                       <p className="font-extrabold text-plum-800">{p.name}</p>
                       <p className="text-sm font-bold text-rose-600">{describePromo(p)}</p>
+                      {p.promo_type === 'fixed_price' && <Money amount={p.value} currency={p.currency} className="hidden" usdClassName="block" />}
+                      {p.description && <p className="mt-1 line-clamp-3 text-xs whitespace-pre-line text-plum-500">{p.description}</p>}
                       <p className="mt-1 text-xs text-plum-500">
                         {p.service_ids.length ? p.service_ids.map(serviceName).join(', ') : 'Aplica a cualquier servicio'}
                       </p>
@@ -114,6 +123,7 @@ function PromoSheet({ promo, onClose }: { promo: Partial<Promotion>; onClose: ()
     valid_to: promo.valid_to ?? '',
     conditions: promo.conditions ?? '',
     stackable: !!promo.stackable,
+    requires_all: !!promo.requires_all,
     active: promo.active === undefined ? true : !!promo.active,
     service_ids: promo.service_ids ?? [],
   });
@@ -124,7 +134,7 @@ function PromoSheet({ promo, onClose }: { promo: Partial<Promotion>; onClose: ()
   };
   const m = useMutation({
     mutationFn: () => {
-      const body = { ...form, value: Number(form.value) || 0, valid_from: form.valid_from || null, valid_to: form.valid_to || null };
+      const body = { ...form, requires_all: form.requires_all ? 1 : 0, value: Number(form.value) || 0, valid_from: form.valid_from || null, valid_to: form.valid_to || null };
       return promo.id ? put(`/promotions/${promo.id}`, body) : post('/promotions', body);
     },
     onSuccess: () => done(promo.id ? 'Promoción actualizada' : 'Promoción creada'),
@@ -209,9 +219,10 @@ function PromoSheet({ promo, onClose }: { promo: Partial<Promotion>; onClose: ()
         <Field label="Condiciones">
           <Textarea rows={2} value={form.conditions} onChange={(e) => setForm({ ...form, conditions: e.target.value })} placeholder="Ej. Solo pago anticipado, una vez por cliente…" />
         </Field>
-        <Field label="Descripción interna">
-          <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <Field label="Descripción" hint="Opcional. Texto largo y de varias líneas para promocionar o explicar la promoción.">
+          <Textarea rows={6} maxLength={5000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </Field>
+        <Toggle checked={form.requires_all} onChange={(v) => setForm({ ...form, requires_all: v })} label="Paquete: requiere todos los servicios" description="Solo aplica si la cita incluye todos los servicios elegidos arriba." />
         <Toggle checked={form.stackable} onChange={(v) => setForm({ ...form, stackable: v })} label="Acumulable" description="Permite combinarla con otras promociones acumulables en la misma cita." />
         <Toggle checked={form.active} onChange={(v) => setForm({ ...form, active: v })} label="Activa" />
         <ErrorBox error={m.error} />

@@ -18,6 +18,8 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
+  parseIntentions,
+  isPromotionValidOn,
   clientContactFor,
   hasRitual,
   isRitualOnly,
@@ -40,6 +42,7 @@ import type {
   AppointmentInput,
   AppointmentPromotion,
   AppointmentService,
+  Service,
   AppointmentStatus,
   Client,
   Conflict,
@@ -66,6 +69,7 @@ import {
   Textarea,
 } from '../components/ui';
 import { ApiError, get, qs } from '../lib/api';
+import { Money as Price, useUsd } from '../components/Money';
 import { useAppointment, useClients, usePromotions, useSaveAppointment, useServices } from '../lib/hooks';
 import { useFmt, useSettings } from '../lib/settings';
 
@@ -210,8 +214,15 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
   const selectedServiceIds = f.services.map((s) => s.service_id).filter((x): x is number => !!x);
 
   const availablePromos = useMemo(
-    () => promotions.filter((p) => promoIsApplicable(p, selectedServiceIds, f.date) || f.promoIds.includes(p.id)),
-    [promotions, selectedServiceIds.join(','), f.date, f.promoIds.join(',')],
+    () =>
+      promotions.filter(
+        (p) =>
+          promoIsApplicable(p, selectedServiceIds, f.date) ||
+          f.promoIds.includes(p.id) ||
+          // Los paquetes vigentes se ofrecen siempre: al elegirlos se agregan sus servicios
+          (!!p.requires_all && isPromotionValidOn(p, f.date) && p.service_ids.every((id) => services.some((s) => s.id === id && s.active))),
+      ),
+    [promotions, services, selectedServiceIds.join(','), f.date, f.promoIds.join(',')],
   );
 
   const appliedPromos: AppointmentPromotion[] = useMemo(() => {
@@ -219,6 +230,8 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
     const fromCatalog = f.promoIds
       .map((pid) => promotions.find((p) => p.id === pid))
       .filter((p): p is Promotion & { usage_count: number } => !!p)
+      // Si quitas un servicio de un paquete, el paquete deja de aplicar
+      .filter((p) => !p.requires_all || p.service_ids.every((id) => selectedServiceIds.includes(id)))
       .map((p) => {
         const r = computePromo(p, f.services);
         return { promotion_id: p.id, name: p.name, original_price: r.original, special_price: r.special, savings: r.savings };
@@ -307,6 +320,10 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
     if (!(f.duration > 0)) e.duration = 'La duración debe ser mayor a 0.';
     if (f.agreedAmount !== '' && !(Number(f.agreedAmount) >= 0)) e.price = 'Importe inválido.';
     if (newPay < 0) e.pay = 'Monto inválido.';
+    f.services.forEach((l, i) => {
+      const opts = parseIntentions(services.find((s) => s.id === l.service_id)?.intentions);
+      if (opts.length && !l.intention) e[`intention${i}`] = 'Elige una intención.';
+    });
     if (needsTopic && !f.ritualTopic.trim()) e.topic = 'Escribe el tema del ritual.';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -506,8 +523,29 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
                         {s.category}
                         {s.duration_min ? ` · ${formatDuration(s.duration_min)}` : ''}
                       </p>
+                      {(() => {
+                        const opts = parseIntentions(services.find((c) => c.id === s.service_id)?.intentions);
+                        if (!opts.length) return null;
+                        return (
+                          <div className="mt-2">
+                            <p className="mb-1 text-[11px] font-bold text-plum-500">Intención</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {opts.map((o) => (
+                                <Chip
+                                  key={o}
+                                  active={s.intention === o}
+                                  onClick={() => set('services', f.services.map((l, j) => (j === i ? { ...l, intention: o } : l)))}
+                                >
+                                  {o}
+                                </Chip>
+                              ))}
+                            </div>
+                            {errors[`intention${i}`] && <p className="mt-1 text-xs font-bold text-rose-600">{errors[`intention${i}`]}</p>}
+                          </div>
+                        );
+                      })()}
                     </div>
-                    <span className="font-extrabold text-plum-700">{formatMoney(s.price, f.currency)}</span>
+                    <Price amount={s.price} currency={f.currency} className="font-extrabold text-plum-700" usdClassName="text-right" />
                     <button
                       type="button"
                       aria-label={`Quitar ${s.name}`}
@@ -520,7 +558,7 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
                 ))}
                 <li className="flex items-center justify-between bg-lavender-50 px-4 py-3">
                   <span className="font-bold text-plum-600">Subtotal</span>
-                  <span className="font-extrabold text-plum-800">{formatMoney(subtotal, f.currency)}</span>
+                  <Price amount={subtotal} currency={f.currency} className="font-extrabold text-plum-800" usdClassName="text-right" />
                 </li>
               </ul>
             )}
@@ -594,12 +632,27 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
                 promos={availablePromos}
                 selected={f.promoIds}
                 lines={f.services}
+                catalog={services}
                 currency={f.currency}
                 manual={f.manualSpecial !== ''}
                 onToggle={(p) => {
                   setF((s) => {
                     const isSel = s.promoIds.includes(p.id);
                     if (isSel) return { ...s, promoIds: s.promoIds.filter((x) => x !== p.id) };
+                    if (p.requires_all) {
+                      // Paquete: suma a la cita los servicios que falten (sin duplicar los que ya están)
+                      const have = new Set(s.services.map((l) => l.service_id));
+                      const missing = p.service_ids.filter((id) => !have.has(id)).map((id) => services.find((x) => x.id === id)).filter(Boolean) as Service[];
+                      if (missing.length) {
+                        return {
+                          ...s,
+                          services: [...s.services, ...missing.map(serviceToLine)],
+                          currency: s.services.length ? s.currency : missing[0].currency,
+                          manualSpecial: '',
+                          promoIds: [p.id],
+                        };
+                      }
+                    }
                     // No acumula promociones salvo que todas permitan acumularse
                     const current = s.promoIds.map((pid) => promotions.find((x) => x.id === pid)).filter(Boolean) as Promotion[];
                     const canStack = p.stackable && current.every((c) => c.stackable);
@@ -672,9 +725,9 @@ function AppointmentForm({ existing }: { existing: Appointment | null }) {
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 rounded-2xl bg-gradient-to-br from-lavender-50 to-blush-50 p-4 text-center">
-              <Money label="Precio original" value={formatMoney(original, f.currency)} />
-              <Money label="Descuento" value={discount ? `− ${formatMoney(discount, f.currency)}` : formatMoney(0, f.currency)} tone="text-rose-600" />
-              <Money label="Precio final" value={formatMoney(finalPrice, f.currency)} big />
+              <Money label="Precio original" value={formatMoney(original, f.currency)} mxn={f.currency === 'MXN' ? original : null} />
+              <Money label="Descuento" value={discount ? `− ${formatMoney(discount, f.currency)}` : formatMoney(0, f.currency)} tone="text-rose-600" mxn={f.currency === 'MXN' ? discount : null} />
+              <Money label="Precio final" value={formatMoney(finalPrice, f.currency)} big mxn={f.currency === 'MXN' ? finalPrice : null} />
             </div>
             {existing && existing.payments && existing.payments.length > 0 && (
               <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800">
@@ -777,11 +830,14 @@ function FormSection({ icon, title, children }: { icon: ReactNode; title: string
   );
 }
 
-function Money({ label, value, big, tone }: { label: string; value: string; big?: boolean; tone?: string }) {
+function Money({ label, value, big, tone, mxn }: { label: string; value: string; big?: boolean; tone?: string; mxn?: number | null }) {
+  const usd = useUsd();
+  const eq = mxn != null ? usd(mxn) : null;
   return (
     <div>
       <p className="text-[11px] font-bold text-plum-500">{label}</p>
       <p className={cx('font-extrabold', big ? 'text-base text-plum-800' : 'text-sm text-plum-700', tone)}>{value}</p>
+      {eq && <p className="text-[11px] font-semibold text-plum-400">{eq}</p>}
     </div>
   );
 }
@@ -963,6 +1019,7 @@ function PromoPicker({
   promos,
   selected,
   lines,
+  catalog,
   currency,
   manual,
   onToggle,
@@ -972,6 +1029,7 @@ function PromoPicker({
   promos: Promotion[];
   selected: number[];
   lines: AppointmentService[];
+  catalog: Service[];
   currency: Currency;
   manual: boolean;
   onToggle: (p: Promotion) => void;
@@ -999,7 +1057,11 @@ function PromoPicker({
         </div>
       ))}
       {list.map((p) => {
-        const r = computePromo(p, lines);
+        // Paquete incompleto: la vista previa incluye los servicios que se agregarían
+        const extra = p.requires_all
+          ? (p.service_ids.filter((id) => !lines.some((l) => l.service_id === id)).map((id) => catalog.find((c) => c.id === id)).filter(Boolean) as Service[]).map(serviceToLine)
+          : [];
+        const r = computePromo(p, [...lines, ...extra]);
         const sel = selected.includes(p.id);
         return (
           <button
@@ -1014,7 +1076,9 @@ function PromoPicker({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-extrabold text-plum-800">{p.name}</p>
-                <p className="text-xs font-semibold text-plum-500">{describePromo(p)}</p>
+                <p className="text-xs font-semibold text-plum-500">{describePromo(p)}{p.requires_all ? ' · Paquete' : ''}</p>
+                {extra.length > 0 && <p className="mt-0.5 text-[11px] font-bold text-gold-600">Se agregarán: {extra.map((x) => x.name).join(', ')}</p>}
+                {p.description && <p className="mt-1 line-clamp-2 text-xs whitespace-pre-line text-plum-500">{p.description}</p>}
               </div>
               <span className={cx('flex size-6 shrink-0 items-center justify-center rounded-full border-2', sel ? 'border-rose-500 bg-rose-500 text-white' : 'border-lavender-300')}>
                 {sel && '✓'}
@@ -1027,7 +1091,7 @@ function PromoPicker({
               </div>
               <div className="rounded-xl bg-white/70 py-1.5">
                 <p className="text-plum-400">Especial</p>
-                <p className="font-extrabold text-plum-800">{formatMoney(r.special, currency)}</p>
+                <Price amount={r.special} currency={currency} className="font-extrabold text-plum-800" usdClassName="block" />
               </div>
               <div className="rounded-xl bg-white/70 py-1.5">
                 <p className="text-plum-400">Ahorro</p>

@@ -80,6 +80,7 @@ export function useInvalidateAppointments() {
       qc.invalidateQueries({ queryKey: ['appointment'] }),
       qc.invalidateQueries({ queryKey: ['dashboard'] }),
       qc.invalidateQueries({ queryKey: ['stats'] }),
+      qc.invalidateQueries({ queryKey: ['analytics'] }),
       qc.invalidateQueries({ queryKey: ['client'] }),
       qc.invalidateQueries({ queryKey: ['clients'] }),
       qc.invalidateQueries({ queryKey: ['payments'] }),

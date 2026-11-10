@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowLeftRight,
   Bell,
   BellOff,
   Clock,
@@ -20,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { formatMoney, usdEquivalent } from '../../shared/domain';
 import { isValidTimeZone } from '../../shared/time';
 import type { Settings } from '../../shared/types';
 import { Logo } from '../components/Brand';
@@ -29,7 +31,7 @@ import { TimePicker } from '../components/TimePicker';
 import { Button, Card, Chip, ErrorBox, Field, Input, Select, Toggle } from '../components/ui';
 import { get, post, put } from '../lib/api';
 import { currentSubscription, disablePush, enablePush, isIos, isStandalone, pushSupported, type PushInfo } from '../lib/push';
-import { useSettings } from '../lib/settings';
+import { useFmt, useSettings } from '../lib/settings';
 
 const TIMEZONES = [
   'America/Monterrey',
@@ -136,6 +138,8 @@ export function SettingsPage() {
             <PaymentMethods methods={s.payment_methods} onSave={(m) => patch({ payment_methods: m })} />
           </Section>
 
+          <ExchangeRateSection s={s} patch={patch} saving={save.isPending} />
+
           <SecuritySection />
           <BackupSection />
 
@@ -143,6 +147,59 @@ export function SettingsPage() {
         </div>
       </Page>
     </>
+  );
+}
+
+/** Tipo de cambio manual: el MXN es la moneda principal y todos los precios en USD se calculan con este valor. */
+function ExchangeRateSection({ s, patch, saving }: { s: Settings; patch: (p: Partial<Settings>) => void; saving: boolean }) {
+  const fmt = useFmt();
+  const [rate, setRate] = useState(s.usd_rate != null ? String(s.usd_rate) : '');
+  useEffect(() => setRate(s.usd_rate != null ? String(s.usd_rate) : ''), [s.usd_rate, s.usd_rate_updated_at]);
+  const n = Number(rate.replace(',', '.'));
+  const valid = rate.trim() !== '' && Number.isFinite(n) && n > 0 && n <= 1000;
+  const changed = rate.trim() === '' ? s.usd_rate != null : valid && (n !== s.usd_rate || !s.usd_rate_updated_at);
+  const example = valid ? usdEquivalent(111, n) : s.usd_rate ? usdEquivalent(111, s.usd_rate) : null;
+  return (
+    <Section icon={<ArrowLeftRight />} title="Tipo de cambio">
+      <p className="text-sm text-plum-500">
+        El peso mexicano (MXN) es la moneda principal. Escribe cuántos pesos vale hoy 1 dólar: los equivalentes en USD que ves debajo de cada precio se calculan
+        con este valor (ya con descuentos) y se actualizan solos. Tus precios en pesos nunca cambian.
+      </p>
+      <Field label="1 USD =" hint="Ejemplo: 20.00">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Input type="text" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="20.00" className="pr-16" />
+            <span className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-sm font-bold text-plum-500">MXN</span>
+          </div>
+          <Button disabled={!changed || (rate.trim() !== '' && !valid)} loading={saving} onClick={() => patch({ usd_rate: rate.trim() === '' ? null : n })}>
+            Guardar
+          </Button>
+        </div>
+      </Field>
+      {rate.trim() !== '' && !valid && <p className="text-sm font-semibold text-rose-600">Escribe un número mayor a 0, por ejemplo 20.00.</p>}
+      {s.usd_rate ? (
+        <p className="text-sm text-plum-600">
+          Tipo de cambio actual: <strong>1 USD = {formatMoney(s.usd_rate, 'MXN')}</strong>
+          {s.usd_rate_updated_at && (
+            <>
+              {' '}
+              · última actualización: <strong className="capitalize">{fmt.dateLong(s.usd_rate_updated_at)}</strong> a las {fmt.time(s.usd_rate_updated_at)}
+            </>
+          )}
+        </p>
+      ) : (
+        <p className="rounded-2xl bg-gold-300/30 px-4 py-3 text-sm text-plum-700">
+          Aún no hay tipo de cambio: no se muestran equivalentes en dólares. Escríbelo arriba y guárdalo.
+        </p>
+      )}
+      {example && (
+        <div className="rounded-2xl bg-lavender-50 px-4 py-3">
+          <p className="text-xs font-bold text-plum-400">Así se verá un precio de ejemplo</p>
+          <p className="font-display text-2xl font-bold text-plum-700">Ritual 11:11 · $111.00 MXN</p>
+          <p className="text-sm font-semibold text-plum-400">{example}</p>
+        </div>
+      )}
+    </Section>
   );
 }
 

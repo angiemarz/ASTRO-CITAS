@@ -1,9 +1,22 @@
-// Tablas que se crean automáticamente la primera vez (una vez por instancia del Worker), para que agregar
-// funciones no obligue a ejecutar migraciones a mano en la consola de D1. Las migraciones de /migrations
-// contienen lo mismo, para instalaciones nuevas.
+// Tablas y columnas que se crean automáticamente la primera vez (una vez por instancia del Worker), para que
+// agregar funciones no obligue a ejecutar migraciones a mano en la consola de D1. Nunca se borra ni se
+// reescribe información existente: solo se agregan tablas/columnas que faltan. Las migraciones de /migrations
+// contienen lo mismo para instalaciones nuevas.
 import type { Env } from './env';
 
 let ready = false;
+
+/** Agrega una columna solo si no existe (los registros antiguos quedan con el valor por defecto / NULL). */
+async function ensureColumn(env: Env, table: string, column: string, ddl: string) {
+  const { results } = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  if (results.some((r) => r.name === column)) return;
+  try {
+    await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`).run();
+  } catch (e) {
+    // Otra instancia del Worker pudo agregarla al mismo tiempo.
+    if (!/duplicate column/i.test(String((e as Error).message))) throw e;
+  }
+}
 
 export async function ensureSchema(env: Env): Promise<void> {
   if (ready) return;
@@ -32,6 +45,12 @@ export async function ensureSchema(env: Env): Promise<void> {
          updated_at TEXT NOT NULL)`,
     ),
   ]);
+
+  // Columnas nuevas (los registros anteriores siguen funcionando sin ellas)
+  await ensureColumn(env, 'promotions', 'requires_all', 'INTEGER NOT NULL DEFAULT 0'); // paquete: exige todos sus servicios
+  await ensureColumn(env, 'services', 'intentions', 'TEXT'); // JSON: intenciones entre las que la clienta elige
+  await ensureColumn(env, 'appointment_services', 'intention', 'TEXT'); // intención elegida en la cita
+
   await seedOnce(env, 'abrecaminos_especifico', [
     env.DB.prepare(
       `INSERT INTO services (name, category, description, price, currency, duration_min, active, created_at, updated_at)
@@ -40,6 +59,25 @@ export async function ensureSchema(env: Env): Promise<void> {
               230, 'MXN', 60, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE NOT EXISTS (SELECT 1 FROM services WHERE name = 'Abrecaminos específico')`,
     ),
+  ]);
+
+  // Ritual 11:11: si ya existe, se actualiza su información (sin tocar una descripción que ya hayas escrito); si no, se crea.
+  const desc =
+    'Ritual de intención especial del portal 11:11, enfocado en canalizar deseos, manifestar propósitos y trabajar simbólicamente con la energía de nuevos comienzos.';
+  const intentions = JSON.stringify(['Salud', 'Abundancia', 'Proyectos', 'Abre caminos', 'Petición de deseo']);
+  await seedOnce(env, 'ritual_1111', [
+    env.DB.prepare(
+      `INSERT INTO services (name, category, description, price, currency, duration_min, active, intentions, created_at, updated_at)
+       SELECT 'Ritual 11:11', 'Rituales ✨', ?, 111, 'MXN', 60, 1, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE NOT EXISTS (SELECT 1 FROM services WHERE lower(trim(name)) = 'ritual 11:11')`,
+    ).bind(desc, intentions),
+    env.DB.prepare(
+      `UPDATE services SET price = 111, currency = 'MXN', category = 'Rituales ✨', active = 1,
+         description = CASE WHEN description IS NULL OR trim(description) = '' THEN ? ELSE description END,
+         intentions = CASE WHEN intentions IS NULL OR trim(intentions) IN ('', '[]') THEN ? ELSE intentions END,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE lower(trim(name)) = 'ritual 11:11'`,
+    ).bind(desc, intentions),
   ]);
   ready = true;
 }

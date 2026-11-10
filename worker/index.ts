@@ -27,6 +27,7 @@ const router = new Router()
   // Panel y estadísticas
   .get('/api/dashboard', st.dashboard)
   .get('/api/stats', st.stats)
+  .get('/api/analytics', st.analytics)
   // Citas
   .get('/api/appointments', appts.listAppointments)
   .post('/api/appointments', appts.createAppointment)

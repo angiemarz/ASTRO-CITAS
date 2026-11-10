@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Money } from '../components/Money';
 import { formatMoney, PLATFORM_LABELS } from '../../shared/domain';
 import { formatYmdLong, relativeTime } from '../../shared/time';
 import type { Appointment } from '../../shared/types';
@@ -206,7 +207,7 @@ function NextCard({ appt, now }: { appt: Appointment; now: number }) {
               </span>
             }
           />
-          <Info label="Precio total" value={formatMoney(appt.final_price, appt.currency)} />
+          <Info label="Precio total" value={<Money amount={appt.final_price} currency={appt.currency} className="font-bold" />} />
           <Info label="Pago" value={<PaymentBadge status={appt.payment_status} />} />
           <Info label="Atención" value={<StatusBadge status={appt.status} />} />
         </dl>
