@@ -1,4 +1,4 @@
-import { ArrowDownUp, ClipboardList, Download, SlidersHorizontal } from 'lucide-react';
+import { ArrowDownUp, Check, ClipboardList, Download, FileSpreadsheet, FileText, ListChecks, SlidersHorizontal, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { formatMoney, PAYMENT_LABELS, PLATFORM_LABELS, STATUS_LABELS, STATUS_ORDER } from '../../shared/domain';
@@ -7,8 +7,10 @@ import type { Appointment, PaymentStatus, Platform } from '../../shared/types';
 import { AppointmentCard } from '../components/AppointmentCard';
 import { Page, PageHeader } from '../components/Layout';
 import { Button, Chip, EmptyState, ErrorBox, Field, IconButton, Input, LoadingBlock, SearchInput, Select, Sheet } from '../components/ui';
-import { useAppointments, useServices, type AppointmentFilters } from '../lib/hooks';
-import { useFmt } from '../lib/settings';
+import { get, qs } from '../lib/api';
+import { downloadCsv, downloadPdf, downloadXlsx } from '../lib/exportAppointments';
+import { useAppointments, useServices, type AppointmentFilters, type ListResult } from '../lib/hooks';
+import { useFmt, useSettings } from '../lib/settings';
 
 type Period = 'all' | 'upcoming' | 'past' | 'today' | 'week' | 'month' | 'custom';
 
@@ -39,6 +41,12 @@ export function AllAppointmentsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [limit, setLimit] = useState(50);
   const { data: services = [] } = useServices();
+  const settings = useSettings();
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Map<number, Appointment>>(new Map());
+  const [exportOpen, setExportOpen] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [exportError, setExportError] = useState('');
 
   const status = params.get('status') ?? '';
   const payment = params.get('payment') ?? '';
@@ -97,31 +105,47 @@ export function AllAppointmentsPage() {
     setParam('status', [...next].join(','));
   };
 
-  const exportCsv = () => {
-    const header = ['Fecha', 'Hora inicio', 'Hora fin', 'Cliente', 'Servicios', 'Plataforma', 'Estado', 'Moneda', 'Precio final', 'Abonado', 'Saldo', 'Pago', 'Notas'];
-    const rows = items.map((a: Appointment) => [
-      fmt.ymd(a.start_at),
-      fmt.time(a.start_at),
-      fmt.time(a.end_at),
-      a.client_name,
-      a.services.map((s) => s.name).join(' + '),
-      PLATFORM_LABELS[a.platform],
-      STATUS_LABELS[a.status],
-      a.currency,
-      a.final_price,
-      a.paid_total,
-      a.balance,
-      PAYMENT_LABELS[a.payment_status],
-      a.notes ?? '',
-    ]);
-    const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `citas-${fmt.today()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const toggle = (a: Appointment) =>
+    setPicked((m) => {
+      const n = new Map(m);
+      n.has(a.id) ? n.delete(a.id) : n.set(a.id, a);
+      return n;
+    });
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked(new Map());
+  };
+  const [selectingAll, setSelectingAll] = useState(false);
+  /** Selecciona todas las citas que coinciden con la búsqueda y filtros actuales (hasta 500). */
+  const selectAllMatching = async () => {
+    setSelectingAll(true);
+    try {
+      const r = await get<ListResult<Appointment>>(`/appointments${qs({ ...filters, limit: 500, offset: 0 } as unknown as Record<string, string>)}`);
+      setPicked((m) => {
+        const n = new Map(m);
+        r.items.forEach((a) => n.set(a.id, a));
+        return n;
+      });
+    } catch (e) {
+      setExportError((e as Error).message);
+    } finally {
+      setSelectingAll(false);
+    }
+  };
+  const chosen = [...picked.values()].sort((a, b) => a.start_at.localeCompare(b.start_at));
+  const runExport = async (kind: 'xlsx' | 'pdf' | 'csv') => {
+    setBusy(kind);
+    setExportError('');
+    try {
+      if (kind === 'xlsx') downloadXlsx(chosen, fmt);
+      else if (kind === 'csv') downloadCsv(chosen, fmt);
+      else await downloadPdf(chosen, fmt, settings.business_name);
+      setExportOpen(false);
+    } catch (e) {
+      setExportError((e as Error).message || 'No se pudo generar el archivo.');
+    } finally {
+      setBusy(null);
+    }
   };
 
   const totals = items.reduce<Record<string, { total: number; balance: number }>>((acc, a) => {
@@ -142,8 +166,8 @@ export function AllAppointmentsPage() {
             <IconButton label={order === 'asc' ? 'Más antiguas primero' : 'Más recientes primero'} onClick={() => setParam('order', order === 'asc' ? 'desc' : 'asc')}>
               <ArrowDownUp className="size-5" />
             </IconButton>
-            <IconButton label="Exportar CSV" onClick={exportCsv}>
-              <Download className="size-5" />
+            <IconButton label={selecting ? 'Salir de seleccionar' : 'Seleccionar citas para descargar'} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+              {selecting ? <X className="size-5" /> : <ListChecks className="size-5" />}
             </IconButton>
           </>
         }
@@ -175,13 +199,33 @@ export function AllAppointmentsPage() {
             En esta vista: {Object.entries(totals).map(([c, t]) => `${formatMoney(t.total, c)} (por cobrar ${formatMoney(t.balance, c)})`).join(' · ')}
           </p>
         )}
+        {selecting && (
+          <p className="mb-3 rounded-2xl bg-lavender-50 px-4 py-2 text-sm text-plum-600">
+            Toca las citas que quieres descargar. La selección se conserva aunque cambies de filtros.
+          </p>
+        )}
         {isLoading ? (
           <LoadingBlock />
         ) : items.length ? (
           <>
             <div className="grid gap-3 md:grid-cols-2">
               {items.map((a) => (
-                <AppointmentCard key={a.id} appt={a} />
+                <div key={a.id} className="relative">
+                  <AppointmentCard appt={a} />
+                  {selecting && (
+                    <button
+                      type="button"
+                      onClick={() => toggle(a)}
+                      aria-pressed={picked.has(a.id)}
+                      aria-label={`${picked.has(a.id) ? 'Quitar' : 'Elegir'} cita de ${a.client_name}`}
+                      className={`absolute inset-0 z-10 rounded-3xl ${picked.has(a.id) ? 'bg-rose-500/10 ring-2 ring-rose-400' : 'bg-white/20'}`}
+                    >
+                      <span className={`absolute -top-2 -left-2 flex size-7 shadow-soft items-center justify-center rounded-full border-2 ${picked.has(a.id) ? 'border-rose-500 bg-rose-500 text-white' : 'border-plum-300 bg-white'}`}>
+                        {picked.has(a.id) && <Check className="size-4" />}
+                      </span>
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
             {data && data.total > items.length && (
@@ -198,6 +242,59 @@ export function AllAppointmentsPage() {
           </div>
         )}
       </Page>
+
+      {selecting && (
+        <div className="fixed inset-x-0 bottom-24 z-30 px-4 lg:bottom-6 lg:left-72">
+          <div className="mx-auto flex max-w-2xl flex-wrap items-center gap-2 rounded-3xl bg-plum-800 p-3 text-white shadow-glow">
+            <span className="flex-1 pl-2 text-sm font-extrabold">{picked.size} seleccionada(s)</span>
+            <Button size="sm" variant="secondary" loading={selectingAll} onClick={selectAllMatching}>
+              Todas ({data?.total ?? 0})
+            </Button>
+            {picked.size > 0 && (
+              <Button size="sm" variant="secondary" onClick={() => setPicked(new Map())}>
+                Ninguna
+              </Button>
+            )}
+            <Button size="sm" icon={<Download className="size-4" />} disabled={!picked.size} onClick={() => setExportOpen(true)}>
+              Descargar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <Sheet
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        title={`Descargar ${picked.size} cita(s)`}
+        footer={
+          <Button variant="secondary" className="w-full" onClick={() => setExportOpen(false)}>
+            Cancelar
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          {([
+            ['xlsx', 'Excel (editable)', 'Archivo .xlsx para editar, filtrar y sumar los importes.', <FileSpreadsheet key="x" className="size-6" />],
+            ['pdf', 'PDF', 'Documento listo para ver o imprimir, con totales.', <FileText key="p" className="size-6" />],
+            ['csv', 'CSV', 'Texto simple para importar en otras herramientas.', <Download key="c" className="size-6" />],
+          ] as const).map(([k, title, desc, icon]) => (
+            <button
+              key={k}
+              type="button"
+              disabled={!!busy}
+              onClick={() => runExport(k)}
+              className="flex w-full items-center gap-3 rounded-2xl border border-lavender-200 bg-white p-4 text-left active:bg-lavender-50 disabled:opacity-60"
+            >
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl gradient-soft text-plum-600">{icon}</span>
+              <span className="flex-1">
+                <span className="block font-extrabold text-plum-800">{busy === k ? 'Generando…' : title}</span>
+                <span className="text-xs text-plum-500">{desc}</span>
+              </span>
+            </button>
+          ))}
+          {exportError && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-bold text-rose-600">{exportError}</p>}
+        </div>
+      </Sheet>
 
       <Sheet
         open={filtersOpen}
