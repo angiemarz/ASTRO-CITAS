@@ -137,7 +137,7 @@ export function AllAppointmentsPage() {
     setBusy(kind);
     setExportError('');
     try {
-      if (kind === 'xlsx') downloadXlsx(chosen, fmt);
+      if (kind === 'xlsx') downloadXlsx(chosen, fmt, settings.business_name);
       else if (kind === 'csv') downloadCsv(chosen, fmt);
       else await downloadPdf(chosen, fmt, settings.business_name);
       setExportOpen(false);
