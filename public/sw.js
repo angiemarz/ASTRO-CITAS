@@ -1,5 +1,5 @@
 /* Service Worker de AstroBloomx Agenda: caché de la app para abrir rápido y notificaciones push. */
-const VERSION = 'abx-v1';
+const VERSION = 'abx-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/apple-touch-icon.png', '/icons/favicon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -48,7 +48,10 @@ self.addEventListener('fetch', (event) => {
       (hit) =>
         hit ||
         fetch(req).then((res) => {
-          if (res.ok || res.type === 'opaque') {
+          // Durante un despliegue, un archivo con hash que aún no existe devuelve la página de inicio (HTML):
+          // si se guardara, la app quedaría en blanco para siempre. Solo se guarda lo que no es HTML.
+          const isHtml = /text\/html/i.test(res.headers.get('content-type') || '');
+          if ((res.ok && !isHtml) || res.type === 'opaque') {
             const copy = res.clone();
             caches.open(VERSION).then((c) => c.put(req, copy));
           }
