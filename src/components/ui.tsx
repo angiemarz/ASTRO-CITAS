@@ -2,6 +2,7 @@ import { Loader2, Search, X } from 'lucide-react';
 import {
   forwardRef,
   useEffect,
+  useRef,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -337,6 +338,17 @@ export function ErrorBox({ error }: { error: unknown }) {
 }
 
 /** Hoja inferior en iPhone, diálogo centrado en computadora. */
+let scrollLocks = 0;
+function lockScroll() {
+  if (scrollLocks++ === 0) document.body.style.overflow = 'hidden';
+}
+function unlockScroll() {
+  if (--scrollLocks <= 0) {
+    scrollLocks = 0;
+    document.body.style.overflow = '';
+  }
+}
+
 export function Sheet({
   open,
   onClose,
@@ -352,17 +364,20 @@ export function Sheet({
   footer?: ReactNode;
   wide?: boolean;
 }) {
+  // Si hay varias hojas abiertas a la vez, el bloqueo del scroll se libera solo cuando se cierra la última
+  // (antes, cerrar en cierto orden dejaba la página sin poder desplazarse).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    lockScroll();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
     window.addEventListener('keydown', onKey);
     return () => {
-      document.body.style.overflow = prev;
+      unlockScroll();
       window.removeEventListener('keydown', onKey);
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6" role="dialog" aria-modal="true">
