@@ -69,7 +69,7 @@ export function totalsByCurrency(items: Appointment[]) {
   return t;
 }
 
-function save(blob: Blob, name: string) {
+export function save(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -88,7 +88,7 @@ export function downloadCsv(items: Appointment[], fmt: ExportFmt) {
 }
 
 // ---------- Paleta AstroBloomx ----------
-const C = {
+export const C = {
   plum: '4A2459',
   plumMid: '74428A',
   gold: 'C5A25A',
@@ -459,4 +459,108 @@ export async function downloadPdf(items: Appointment[], fmt: ExportFmt, business
     doc.text(`Página ${p} de ${pages}`, W - M, H - 17, { align: 'right' });
   }
   doc.save(`citas-${fmt.today()}.pdf`);
+}
+
+// ---------- Tabla genérica con el mismo diseño (para promociones y otras listas) ----------
+export type CellKind = 'text' | 'wrap' | 'center' | 'money' | 'percent' | 'bold' | 'badge';
+export interface TableCell {
+  v: string | number;
+  kind?: CellKind;
+  /** Colores [texto, fondo] para etiquetas (kind 'badge'). */
+  color?: [string, string];
+}
+export const STATUS_PALETTE = {
+  good: ['257A4A', 'DFF3E6'] as [string, string],
+  warn: ['9A6A12', 'FBEFD5'] as [string, string],
+  bad: ['A82E6C', 'FBE3EE'] as [string, string],
+  off: ['7A7A7A', 'EDEDED'] as [string, string],
+};
+
+export function buildTableXlsx(o: {
+  sheet: string;
+  title: string;
+  subtitle: string;
+  headers: string[];
+  widths: number[];
+  rows: TableCell[][];
+}): Uint8Array {
+  const st = new Styles();
+  const n = o.headers.length;
+  const HEAD = 4;
+  const cells: Record<number, string> = {};
+  const put = (r: number, c: number, v: string | number | null, style: number) => {
+    const ref = `${colName(c)}${r}`;
+    const x =
+      v === null
+        ? `<c r="${ref}" s="${style}"/>`
+        : typeof v === 'number'
+          ? `<c r="${ref}" s="${style}"><v>${Number.isFinite(v) ? v : 0}</v></c>`
+          : `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+    cells[r] = (cells[r] ?? '') + x;
+  };
+  const titleXf = st.xf({ font: { b: true, sz: 20, color: C.plum, name: 'Georgia' }, fill: C.blush, h: 'left', indent: 1 });
+  const subXf = st.xf({ font: { i: true, sz: 10, color: C.muted }, fill: C.blush, h: 'left', indent: 1, border: { bottom: ['medium', C.gold] } });
+  put(1, 0, `✦ ${o.title}`, titleXf);
+  put(2, 0, o.subtitle, subXf);
+  for (let c = 1; c < n; c++) {
+    put(1, c, null, titleXf);
+    put(2, c, null, subXf);
+  }
+  const headXf = st.xf({ font: { b: true, color: 'FFFFFF' }, fill: C.plumMid, h: 'center', wrap: true, border: { bottom: ['medium', C.gold] } });
+  o.headers.forEach((h, c) => put(HEAD, c, h, headXf));
+  o.rows.forEach((row, i) => {
+    const fill = i % 2 ? C.zebra : undefined;
+    const border = { bottom: ['thin', C.line] as [string, string] };
+    row.forEach((cell, c) => {
+      const k = cell.kind ?? 'text';
+      const style =
+        k === 'money'
+          ? st.xf({ fill, border, numFmt: 164, h: 'right' })
+          : k === 'percent'
+            ? st.xf({ fill, border, numFmt: 9, h: 'center' })
+            : k === 'badge'
+              ? st.xf({ font: { b: true, sz: 10, color: (cell.color ?? [C.text, C.zebra])[0] }, fill: (cell.color ?? [C.text, C.zebra])[1], border, h: 'center' })
+              : k === 'center'
+                ? st.xf({ fill, border, h: 'center' })
+                : k === 'bold'
+                  ? st.xf({ fill, border, font: { b: true }, wrap: true })
+                  : st.xf({ fill, border, wrap: k === 'wrap' || typeof cell.v === 'string' });
+      put(HEAD + 1 + i, c, cell.v, style);
+    });
+  });
+  const last = HEAD + o.rows.length;
+  const rowNums = Object.keys(cells).map(Number).sort((a, b) => a - b);
+  const attrs: Record<number, string> = { 1: ' ht="36" customHeight="1"', 2: ' ht="20" customHeight="1"', 3: ' ht="8" customHeight="1"', [HEAD]: ' ht="30" customHeight="1"' };
+  const sheetData = rowNums.map((k) => `<row r="${k}"${attrs[k] ?? ''}>${cells[k]}</row>`).join('');
+  const sheet =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+    `<sheetPr><tabColor rgb="FF${C.plumMid}"/><pageSetUpPr fitToPage="1"/></sheetPr>` +
+    `<sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="${HEAD}" topLeftCell="A${HEAD + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>` +
+    `<sheetFormatPr defaultRowHeight="20" customHeight="1"/>` +
+    `<cols>${o.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` +
+    `<sheetData>${sheetData}</sheetData>` +
+    (o.rows.length ? `<autoFilter ref="A${HEAD}:${colName(n - 1)}${last}"/>` : '') +
+    `<mergeCells count="2"><mergeCell ref="A1:${colName(n - 1)}1"/><mergeCell ref="A2:${colName(n - 1)}2"/></mergeCells>` +
+    `<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>` +
+    `<pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/></worksheet>`;
+  return zipSync({
+    '[Content_Types].xml': strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    ),
+    '_rels/.rels': strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    ),
+    'xl/workbook.xml': strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(o.sheet)}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    ),
+    'xl/_rels/workbook.xml.rels': strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    ),
+    'xl/worksheets/sheet1.xml': strToU8(sheet),
+    'xl/styles.xml': strToU8(st.xml()),
+  });
+}
+
+export function downloadTableXlsx(bytes: Uint8Array, filename: string) {
+  save(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
 }
