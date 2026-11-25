@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, Gift, Sparkles, Wand2 } from 'lucide-react';
+import { Check, Download, Gift, Sparkles, Wand2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DISCOUNT_OPTIONS, formatMoney } from '../../shared/domain';
@@ -10,10 +10,12 @@ import { Money } from '../components/Money';
 import { Button, Chip, cx, EmptyState, ErrorBox, Field, Input, LoadingBlock, Textarea, Toggle } from '../components/ui';
 import { post } from '../lib/api';
 import { usePromotions, useServices } from '../lib/hooks';
-import { useSettings } from '../lib/settings';
+import { downloadTableXlsx, proposalsXlsx } from '../lib/exportPromotions';
+import { useFmt, useSettings } from '../lib/settings';
 
 export function PromoGeneratorPage() {
   const settings = useSettings();
+  const fmt = useFmt();
   const qc = useQueryClient();
   const nav = useNavigate();
   const { toast } = useFeedback();
@@ -64,6 +66,17 @@ export function PromoGeneratorPage() {
               : twin
                 ? `Ya existe una promoción activa igual: "${twin.name}".`
                 : '';
+
+  /** Excel con todas las propuestas generadas (usa el descuento elegido abajo). */
+  const downloadProposals = () => {
+    if (!result?.proposals.length) return;
+    downloadTableXlsx(proposalsXlsx(result.proposals, catalog, form.percent, settings.usd_rate, settings.business_name, fmt.today()), `propuestas-promociones-${fmt.today()}.xlsx`);
+  };
+  /** Excel de la promoción que estás editando ahora (con tus cambios). */
+  const downloadCurrent = () => {
+    const p: Proposal = { id: 'actual', label: 'Mi promoción', title: form.name || 'Promoción', serviceIds: form.ids, relevance: 100, matches: {}, description: form.description };
+    downloadTableXlsx(proposalsXlsx([p], catalog, form.percent, settings.usd_rate, settings.business_name, fmt.today()), `promocion-${fmt.today()}.xlsx`);
+  };
 
   const save = useMutation({
     mutationFn: () =>
@@ -131,7 +144,12 @@ export function PromoGeneratorPage() {
               )}
               {result.proposals.length ? (
                 <>
-                  <p className="text-xs font-extrabold tracking-wider text-gold-600 uppercase">Propuestas ({result.proposals.length})</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-extrabold tracking-wider text-gold-600 uppercase">Propuestas ({result.proposals.length})</p>
+                    <Button size="sm" variant="secondary" icon={<Download className="size-4" />} onClick={downloadProposals}>
+                      Descargar Excel
+                    </Button>
+                  </div>
                   <div className="grid gap-3 md:grid-cols-2">
                     {result.proposals.map((p) => {
                       const items = p.serviceIds.map(byId).filter(Boolean) as NonNullable<ReturnType<typeof byId>>[];
@@ -255,9 +273,14 @@ export function PromoGeneratorPage() {
 
               {problem && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-bold text-rose-600">{problem}</p>}
               <ErrorBox error={save.error} />
-              <Button loading={save.isPending} disabled={!!problem} onClick={() => save.mutate()}>
-                Guardar promoción
-              </Button>
+              <div className="flex flex-wrap gap-3">
+                <Button loading={save.isPending} disabled={!!problem} onClick={() => save.mutate()}>
+                  Guardar promoción
+                </Button>
+                <Button variant="secondary" icon={<Download className="size-4" />} disabled={form.ids.length < 2} onClick={downloadCurrent}>
+                  Descargar en Excel
+                </Button>
+              </div>
             </section>
           )}
         </div>

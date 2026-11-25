@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Gift, Pencil, Plus, Trash2, Wand2 } from 'lucide-react';
+import { Download, Gift, Pencil, Plus, Trash2, Wand2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { describePromo, isPromotionValidOn, PROMO_TYPE_LABELS } from '../../shared/domain';
@@ -10,6 +10,7 @@ import { Money } from '../components/Money';
 import { Button, Chip, cx, EmptyState, ErrorBox, Field, IconButton, Input, LoadingBlock, Segmented, Select, Sheet, Textarea, Toggle } from '../components/ui';
 import { del, post, put } from '../lib/api';
 import { usePromotions, useServices } from '../lib/hooks';
+import { downloadTableXlsx, promotionsXlsx } from '../lib/exportPromotions';
 import { useFmt, useSettings } from '../lib/settings';
 
 type Filter = 'current' | 'all' | 'expired';
@@ -25,6 +26,9 @@ export function PromotionsPage() {
   const isCurrent = (p: Promotion) => isPromotionValidOn(p, today);
   const isExpired = (p: Promotion) => !!p.valid_to && p.valid_to < today;
   const list = data.filter((p) => (filter === 'current' ? isCurrent(p) : filter === 'expired' ? isExpired(p) || !p.active : true));
+  const settings = useSettings();
+  const downloadExcel = () =>
+    downloadTableXlsx(promotionsXlsx(list, services, settings.usd_rate, settings.business_name, today), `promociones-${today}.xlsx`);
   const serviceName = (id: number) => services.find((s) => s.id === id)?.name ?? 'Servicio eliminado';
 
   return (
@@ -32,7 +36,10 @@ export function PromotionsPage() {
       <PageHeader
         title="Promociones"
         actions={
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <IconButton label="Descargar promociones en Excel" onClick={downloadExcel}>
+              <Download className="size-5" />
+            </IconButton>
             <Link to="/generador" className="inline-flex items-center gap-1.5 rounded-full bg-plum-50 px-3 py-2 text-xs font-extrabold text-plum-600">
               <Wand2 className="size-4" /> Generador
             </Link>
